@@ -12,6 +12,72 @@ st.write("Envie um ou **vários arquivos .zip** contendo os documentos HTML para
 
 arquivos_zip = st.file_uploader("Arraste e solte os arquivos .ZIP aqui", type=["zip"], accept_multiple_files=True)
 
+def padronizar_ome(texto_ome):
+    """
+    Padroniza variações de nomes de OMEs para um formato único.
+    Ex: '10', '10 BPM', '10ºBPM' -> '10º BPM'
+    """
+    if pd.isna(texto_ome):
+        return "SEM OME"
+        
+    texto = str(texto_ome).upper().strip()
+    
+    if not texto or texto == "NAN":
+        return "SEM OME"
+        
+    # Mapeamentos específicos e especializadas / programas
+    if any(k in texto for k in ["DASDH", "PATRULHA DO BAIRRO", "DIRETORIA DE ASSISTENCIA"]):
+        return "DASDH / PATRULHA DO BAIRRO"
+    if "BOPE" in texto:
+        return "BOPE"
+    if "CHOQUE" in texto or "BPCHOQUE" in texto:
+        return "BPChoque"
+    if "RADIOPATRULHA" in texto or "BPRP" in texto:
+        return "BPRP"
+    if "RPMON" in texto or "MONTADA" in texto:
+        return "RPMon"
+    if "BPTRAN" in texto or "TRÂNSITO" in texto or "TRANSITO" in texto:
+        return "1º BPTran"
+    if "BPRV" in texto or "RODOVIÁRIA" in texto or "RODOVIARIA" in texto:
+        return "BPRv"
+    if "BEPI" in texto or "INTERIOR" in texto:
+        return "BEPI"
+    if "BPGD" in texto or "GUARDA" in texto:
+        return "BPGd"
+    if "BPMA" in texto or "MEIO AMBIENTE" in texto:
+        return "BPMA"
+    if "BPTUR" in texto or "TURÍSTICO" in texto or "TURISTICO" in texto:
+        return "BPTur"
+        
+    # BIEsp (Batalhões Integrados Especializados)
+    biesp_match = re.search(r'(\d+)\s*º?\s*BIESP', texto)
+    if biesp_match:
+        num = biesp_match.group(1)
+        return f"{num}º BIEsp"
+        
+    # CIPM (Companhias Independentes)
+    cipm_match = re.search(r'(\d+)\s*ª?\s*CIPM', texto)
+    if cipm_match:
+        num = cipm_match.group(1)
+        return f"{num}ª CIPM"
+
+    # BPM (Batalhões de Polícia Militar)
+    bpm_match = re.search(r'(\d+)\s*º?\s*BPM', texto)
+    if bpm_match:
+        num = bpm_match.group(1)
+        return f"{num}º BPM"
+        
+    # Se for apenas um número isolado de 1 a 29 (Ex: "10" ou "10º")
+    num_match = re.match(r'^(\d{1,2})\s*º?$', texto)
+    if num_match:
+        num = int(num_match.group(1))
+        if 1 <= num <= 29:
+            return f"{num}º BPM"
+
+    # Limpeza genérica caso não caia em nenhuma regra específica
+    nome_limpo = re.sub(r'[\\/*?:\[\]]', '', texto).strip()
+    return nome_limpo[:31]
+
 if arquivos_zip:
     tabelas_encontradas = []
     
@@ -34,13 +100,11 @@ if arquivos_zip:
                                     
                                     if (tem_grad and tem_matr) or (tem_matr and tem_nome) or (tem_grad and tem_nome):
                                         
-                                        # Promover primeira linha para cabeçalho se contiver os títulos
                                         PRIMEIRA_LINHA = " ".join([str(val).upper() for val in df.iloc[0].values]) if len(df) > 0 else ""
                                         if any(k in PRIMEIRA_LINHA for k in ["GRAD", "MAT", "NOME"]):
                                             df.columns = df.iloc[0]
                                             df = df[1:].reset_index(drop=True)
                                         
-                                        # Remover duplicadas
                                         df = df.loc[:, ~df.columns.duplicated()].copy()
                                         df.columns = [str(c).strip() if pd.notna(c) else f"Coluna_{i}" for i, c in enumerate(df.columns)]
                                         
@@ -55,17 +119,14 @@ if arquivos_zip:
         df_final = pd.concat(tabelas_encontradas, ignore_index=True)
         df_final.dropna(how='all', inplace=True)
         
-        # Busca precisa da coluna da OME (excluindo explicitamente colunas de NOME)
+        # Identificar a coluna da OME
         coluna_ome = None
-        
-        # 1ª Tentativa: Busca termos exatos de OME/Destino
         for col in df_final.columns:
             col_upper = str(col).upper()
             if ("OME" in col_upper or "DESTINO" in col_upper) and "NOME" not in col_upper:
                 coluna_ome = col
                 break
                 
-        # 2ª Tentativa: Se não achou, procura por termos secundários de lotação/unidade
         if not coluna_ome:
             for col in df_final.columns:
                 col_upper = str(col).upper()
@@ -75,23 +136,22 @@ if arquivos_zip:
 
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            # Aba com a consolidação completa
+            # Aba Geral
             df_final.to_excel(writer, index=False, sheet_name='TODOS')
             
-            # Separar em abas por OME se a coluna for identificada
+            # Separar por OME Padronizada
             if coluna_ome:
-                grupos = df_final.groupby(coluna_ome)
+                # Criar uma coluna auxiliar temporária com a OME padronizada
+                df_final['OME_Padronizada'] = df_final[coluna_ome].apply(padronizar_ome)
                 
-                for nome_ome, df_grupo in grupos:
-                    # Limpeza para nome de aba válido no Excel
-                    nome_aba = re.sub(r'[\\/*?:\[\]]', '', str(nome_ome)).strip().upper()
-                    if not nome_aba or nome_aba == 'NAN':
-                        nome_aba = "SEM OME"
+                grupos = df_final.groupby('OME_Padronizada')
+                
+                for nome_ome_padrao, df_grupo in grupos:
+                    # Remover coluna auxiliar antes de salvar na aba da OME
+                    df_aba = df_grupo.drop(columns=['OME_Padronizada'])
                     
-                    # Limitar tamanho do nome da aba (máx 31 caracteres do Excel)
-                    nome_aba = nome_aba[:31]
+                    nome_aba = nome_ome_padrao[:31]
                     
-                    # Evitar abas duplicadas
                     sheet_names_existentes = writer.sheets.keys()
                     count = 1
                     nome_aba_final = nome_aba
@@ -99,12 +159,12 @@ if arquivos_zip:
                         nome_aba_final = f"{nome_aba[:28]}_{count}"
                         count += 1
                     
-                    df_grupo.to_excel(writer, index=False, sheet_name=nome_aba_final)
+                    df_aba.to_excel(writer, index=False, sheet_name=nome_aba_final)
         
-        st.success(f"Sucesso! Dados consolidados e divididos por OME.")
+        st.success("Sucesso! Relatórios unificados e OMEs padronizadas em abas exclusivas.")
         
         st.download_button(
-            label="📥 Baixar Planilha Separada por OMEs",
+            label="📥 Baixar Planilha Consolidada por OMEs",
             data=buffer.getvalue(),
             file_name="Relatorio_Policiais_Por_OME.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
