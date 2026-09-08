@@ -8,80 +8,95 @@ import re
 st.set_page_config(page_title="Processador de Relatórios PMPE", layout="wide")
 
 st.title("📊 Processador de Relatórios SEI por OME")
-st.write("Envie um ou **vários arquivos .zip** contendo os documentos HTML para gerar a planilha consolidada.")
+st.write("Envie um ou **vários arquivos .zip** para consolidar e distribuir os policiais nas abas das OMEs desejadas.")
 
 arquivos_zip = st.file_uploader("Arraste e solte os arquivos .ZIP aqui", type=["zip"], accept_multiple_files=True)
 
-def padronizar_ome(texto_ome):
+def extrair_omes(texto_ome):
     """
-    Padroniza variações de nomes de OMEs para um formato único.
-    Ex: '10', '10 BPM', '10ºBPM' -> '10º BPM'
+    Analisa a célula de OME, divide caso haja mais de uma opção selecionada
+    e retorna uma lista de OMEs padronizadas.
     """
     if pd.isna(texto_ome):
-        return "SEM OME"
+        return ["SEM OME"]
         
-    texto = str(texto_ome).upper().strip()
-    
-    if not texto or texto == "NAN" or texto == "NONE":
-        return "SEM OME"
-        
-    # Mapeamentos específicos e especializadas / programas
-    if any(k in texto for k in ["DASDH", "PATRULHA DO BAIRRO", "DIRETORIA DE ASSISTENCIA"]):
-        return "DASDH - PATRULHA DO BAIRRO"
-    if "BOPE" in texto:
-        return "BOPE"
-    if "CHOQUE" in texto or "BPCHOQUE" in texto:
-        return "BPChoque"
-    if "RADIOPATRULHA" in texto or "BPRP" in texto:
-        return "BPRP"
-    if "RPMON" in texto or "MONTADA" in texto:
-        return "RPMon"
-    if "BPTRAN" in texto or "TRÂNSITO" in texto or "TRANSITO" in texto:
-        return "1º BPTran"
-    if "BPRV" in texto or "RODOVIÁRIA" in texto or "RODOVIARIA" in texto:
-        return "BPRv"
-    if "BEPI" in texto or "INTERIOR" in texto:
-        return "BEPI"
-    if "BPGD" in texto or "GUARDA" in texto:
-        return "BPGd"
-    if "BPMA" in texto or "MEIO AMBIENTE" in texto:
-        return "BPMA"
-    if "BPTUR" in texto or "TURÍSTICO" in texto or "TURISTICO" in texto:
-        return "BPTur"
-        
-    # BIEsp (Batalhões Integrados Especializados)
-    biesp_match = re.search(r'(\d+)\s*º?\s*BIESP', texto)
-    if biesp_match:
-        num = biesp_match.group(1)
-        return f"{num}º BIEsp"
-        
-    # CIPM (Companhias Independentes)
-    cipm_match = re.search(r'(\d+)\s*ª?\s*CIPM', texto)
-    if cipm_match:
-        num = cipm_match.group(1)
-        return f"{num}ª CIPM"
+    texto_original = str(texto_ome).upper().strip()
+    if not texto_original or texto_original in ["NAN", "NONE"]:
+        return ["SEM OME"]
 
-    # BPM (Batalhões de Polícia Militar)
-    bpm_match = re.search(r'(\d+)\s*º?\s*BPM', texto)
-    if bpm_match:
-        num = bpm_match.group(1)
-        return f"{num}º BPM"
-        
-    # Se for apenas um número isolado de 1 a 29 (Ex: "10" ou "10º")
-    num_match = re.match(r'^(\d{1,2})\s*º?$', texto)
-    if num_match:
-        num = int(num_match.group(1))
-        if 1 <= num <= 29:
-            return f"{num}º BPM"
+    # Quebra o texto se houver múltiplas OMEs separadas por quebra de linha, vírgula, barra ou 'E'
+    linhas = re.split(r'[\n\r,;/]|(?<=\d)\s+E\s+|(?<=\w)\s+E\s+(?=\d|\w)', texto_original)
+    omes_encontradas = set()
 
-    # Limpeza genérica caso não caia em nenhuma regra específica
-    nome_limpo = re.sub(r'[\\/*?:\[\]]', '', texto).strip()
-    return nome_limpo[:31] if nome_limpo else "OUTROS"
+    for linha in linhas:
+        texto = linha.strip()
+        if not texto:
+            continue
+
+        # Mapeamentos Especiais / Múltiplas OMEs populares
+        if "TRIBUNAL DE CONTAS" in texto or "TCE" in texto:
+            omes_encontradas.add("TCE")
+        elif "MARIA DA PENHA" in texto:
+            omes_encontradas.add("MARIA DA PENHA")
+        elif any(k in texto for k in ["DASDH", "PATRULHA DO BAIRRO", "DIRETORIA DE ASSISTENCIA"]):
+            omes_encontradas.add("DASDH - PATRULHA DO BAIRRO")
+        elif "BOPE" in texto:
+            omes_encontradas.add("BOPE")
+        elif "CHOQUE" in texto or "BPCHOQUE" in texto:
+            omes_encontradas.add("BPChoque")
+        elif "RADIOPATRULHA" in texto or "BPRP" in texto:
+            omes_encontradas.add("BPRP")
+        elif "RPMON" in texto or "MONTADA" in texto:
+            omes_encontradas.add("RPMon")
+        elif "BPTRAN" in texto or "TRÂNSITO" in texto or "TRANSITO" in texto:
+            omes_encontradas.add("1º BPTran")
+        elif "BPRV" in texto or "RODOVIÁRIA" in texto or "RODOVIARIA" in texto:
+            omes_encontradas.add("BPRv")
+        elif "BEPI" in texto or "INTERIOR" in texto:
+            omes_encontradas.add("BEPI")
+        elif "BPGD" in texto or "GUARDA" in texto:
+            omes_encontradas.add("BPGd")
+        elif "BPMA" in texto or "MEIO AMBIENTE" in texto:
+            omes_encontradas.add("BPMA")
+        elif "BPTUR" in texto or "TURÍSTICO" in texto or "TURISTICO" in texto:
+            omes_encontradas.add("BPTur")
+        else:
+            # Captura de BIEsp
+            biesp_match = re.search(r'(\d+)\s*º?\s*BIESP', texto)
+            if biesp_match:
+                omes_encontradas.add(f"{biesp_match.group(1)}º BIEsp")
+                continue
+
+            # Captura de CIPM
+            cipm_match = re.search(r'(\d+)\s*ª?\s*CIPM', texto)
+            if cipm_match:
+                omes_encontradas.add(f"{cipm_match.group(1)}ª CIPM")
+                continue
+
+            # Captura de BPM (Procura por números seguidos de BPM ou números isolados de 1 a 29)
+            bpm_match = re.search(r'(\d+)\s*º?\s*BPM', texto)
+            if bpm_match:
+                omes_encontradas.add(f"{bpm_match.group(1)}º BPM")
+                continue
+
+            num_match = re.search(r'\b(\d{1,2})\s*º?\b', texto)
+            if num_match:
+                num = int(num_match.group(1))
+                if 1 <= num <= 29:
+                    omes_encontradas.add(f"{num}º BPM")
+                    continue
+
+            # Limpeza genérica para outros casos
+            nome_limpo = re.sub(r'[\\/*?:\[\]]', '', texto).strip()
+            if nome_limpo:
+                omes_encontradas.add(nome_limpo[:31])
+
+    return list(omes_encontradas) if omes_encontradas else ["OUTROS"]
 
 if arquivos_zip:
     tabelas_encontradas = []
     
-    with st.spinner("Processando e organizando arquivos..."):
+    with st.spinner("Processando e consolidando tabelas..."):
         for arquivo_zip in arquivos_zip:
             with zipfile.ZipFile(arquivo_zip, 'r') as z:
                 for nome_arquivo in z.namelist():
@@ -119,7 +134,7 @@ if arquivos_zip:
         df_final = pd.concat(tabelas_encontradas, ignore_index=True)
         df_final.dropna(how='all', inplace=True)
         
-        # Identificar a coluna da OME
+        # Localização da coluna de OME
         coluna_ome = None
         for col in df_final.columns:
             col_upper = str(col).upper()
@@ -136,20 +151,24 @@ if arquivos_zip:
 
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            # Aba Geral
+            # 1. Salvar aba geral de TODOS
             df_final.to_excel(writer, index=False, sheet_name='TODOS')
             
-            # Separar por OME Padronizada
+            # 2. Processar registros duplicando linhas quando houver mais de uma OME escolhida
             if coluna_ome:
-                df_final['OME_Padronizada'] = df_final[coluna_ome].apply(padronizar_ome)
+                mecanismo_abas = {}
                 
-                grupos = df_final.groupby('OME_Padronizada')
+                for idx, row in df_final.iterrows():
+                    lista_omes = extrair_omes(row[coluna_ome])
+                    for ome in lista_omes:
+                        if ome not in mecanismo_abas:
+                            mecanismo_abas[ome] = []
+                        mecanismo_abas[ome].append(row)
                 
-                for nome_ome_padrao, df_grupo in grupos:
-                    df_aba = df_grupo.drop(columns=['OME_Padronizada'])
-                    
-                    # Garantia estrita de que o nome da aba não seja vazio
-                    nome_aba = str(nome_ome_padrao).strip()[:31]
+                # Criar as abas padronizadas no Excel
+                for nome_ome, lista_rows in mecanismo_abas.items():
+                    df_aba = pd.DataFrame(lista_rows)
+                    nome_aba = str(nome_ome).strip()[:31]
                     if not nome_aba:
                         nome_aba = "OUTROS"
                     
@@ -162,7 +181,7 @@ if arquivos_zip:
                     
                     df_aba.to_excel(writer, index=False, sheet_name=nome_aba_final)
         
-        st.success("Sucesso! Relatórios unificados e OMEs padronizadas em abas exclusivas.")
+        st.success("Sucesso! Múltiplas OMEs identificadas e policiais devidamente alocados em suas respectivas abas.")
         
         st.download_button(
             label="📥 Baixar Planilha Consolidada por OMEs",
