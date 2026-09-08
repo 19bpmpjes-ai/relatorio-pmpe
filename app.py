@@ -26,23 +26,24 @@ if arquivo_zip is not None:
                                 conteudo_texto = df.to_string().upper()
                                 texto_completo = colunas_texto + " " + conteudo_texto
                                 
-                                tem_grad = any(k in texto_completo for k in ["GRADUAÇÃO", "GRADUACAO", "GRAD."])
-                                tem_matr = any(k in texto_completo for k in ["MATRÍCULA", "MATRICULA", "MAT."])
+                                # Termos de busca abrangentes (incluindo palavras sem ponto)
+                                tem_grad = any(k in texto_completo for k in ["GRADUAÇÃO", "GRADUACAO", "GRAD.", "GRAD "]) or "GRAD" in texto_completo
+                                tem_matr = any(k in texto_completo for k in ["MATRÍCULA", "MATRICULA", "MAT.", "MAT "]) or "MAT" in texto_completo
                                 tem_nome = "NOME COMPLETO" in texto_completo or "NOME" in texto_completo
                                 
                                 if (tem_grad and tem_matr) or (tem_matr and tem_nome) or (tem_grad and tem_nome):
                                     
-                                    # Promover primeira linha se contiver os nomes dos cabeçalhos
+                                    # Tratar promoção de primeira linha para cabeçalho
                                     PRIMEIRA_LINHA = " ".join([str(val).upper() for val in df.iloc[0].values]) if len(df) > 0 else ""
-                                    if any(k in PRIMEIRA_LINHA for k in ["GRAD.", "GRADUAÇÃO", "MAT.", "MATRÍCULA", "NOME"]):
+                                    if any(k in PRIMEIRA_LINHA for k in ["GRAD", "MAT", "NOME"]):
                                         df.columns = df.iloc[0]
                                         df = df[1:].reset_index(drop=True)
                                     
-                                    # Corrige colunas duplicadas ou sem nome para evitar o InvalidIndexError
+                                    # Remover colunas duplicadas e organizar nomes
                                     df = df.loc[:, ~df.columns.duplicated()].copy()
                                     df.columns = [str(c).strip() if pd.notna(c) else f"Coluna_{i}" for i, c in enumerate(df.columns)]
                                     
-                                    # Adiciona o arquivo de origem
+                                    # Adicionar origem do arquivo
                                     df.insert(0, 'Arquivo_Origem', os.path.basename(nome_arquivo))
                                     tabelas_encontradas.append(df)
                                     break
