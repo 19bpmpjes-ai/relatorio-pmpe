@@ -14,7 +14,7 @@ arquivos_zip = st.file_uploader("Arraste e solte os arquivos .ZIP aqui", type=["
 
 def extrair_omes(texto_ome):
     """
-    Analisa a célula de OME, divide caso haja mais de uma opção selecionada
+    Analisa a célula de OME/OPÇÕES, divide caso haja mais de uma opção selecionada
     e retorna uma lista de OMEs padronizadas.
     """
     if pd.isna(texto_ome):
@@ -76,7 +76,7 @@ def extrair_omes(texto_ome):
                 omes_encontradas.add(f"{cipm_match.group(1)}ª CIPM")
                 continue
 
-            # Captura de BPM (Normaliza qualquer menção de número + BPM para 'Xº BPM')
+            # Captura de BPM
             bpm_match = re.search(r'(\d+)\s*º?\s*BPM', texto)
             if bpm_match:
                 omes_encontradas.add(f"{bpm_match.group(1)}º BPM")
@@ -90,12 +90,12 @@ def extrair_omes(texto_ome):
                     omes_encontradas.add(f"{num}º BPM")
                     continue
 
-            # Limpeza genérica caso não caia em regras estritas
+            # Limpeza genérica caso não caia nas regras anteriores
             nome_limpo = re.sub(r'[\\/*?:\[\]]', '', texto).strip()
             if nome_limpo:
                 omes_encontradas.add(nome_limpo[:31])
 
-    return list(omes_encontradas) if omes_encontradas else ["OUTROS"]
+    return list(omes_encontradas) if omes_encontradas else ["SEM OME"]
 
 if arquivos_zip:
     tabelas_encontradas = []
@@ -138,49 +138,52 @@ if arquivos_zip:
         df_final = pd.concat(tabelas_encontradas, ignore_index=True)
         df_final.dropna(how='all', inplace=True)
         
-        # Localização da coluna de OME
+        # Localização da coluna de OME / Opções de Destino
         coluna_ome = None
+        
+        # 1ª Prioridade: Cabeçalhos contendo OME, DESTINO, OPÇÃO ou OPÇÕES
         for col in df_final.columns:
             col_upper = str(col).upper()
-            if ("OME" in col_upper or "DESTINO" in col_upper) and "NOME" not in col_upper:
+            if any(k in col_upper for k in ["OME", "DESTINO", "OPÇÃO", "OPCAO", "OPÇÕES", "OPCOES"]) and "NOME" not in col_upper:
                 coluna_ome = col
                 break
                 
+        # 2ª Prioridade: Lotação ou Unidade
         if not coluna_ome:
             for col in df_final.columns:
                 col_upper = str(col).upper()
-                if any(k in col_upper for k in ["UNIDADE", "LOTAÇÃO", "LOTACAO", "OPÇÃO", "OPCAO"]) and "NOME" not in col_upper:
+                if any(k in col_upper for k in ["UNIDADE", "LOTAÇÃO", "LOTACAO"]) and "NOME" not in col_upper:
                     coluna_ome = col
                     break
 
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            # 1. Salvar aba geral de TODOS
-            df_final.to_excel(writer, index=False, sheet_name='TODOS')
             
-            # 2. Processar registros duplicando linhas quando houver mais de uma OME escolhida
+            # Processa e distribui diretamente nas abas das OMEs
             if coluna_ome:
                 mecanismo_abas = {}
                 
                 for idx, row in df_final.iterrows():
                     lista_omes = extrair_omes(row[coluna_ome])
                     for ome in lista_omes:
-                        # Força chave única em maiúsculas e sem espaços extras
                         chave_ome = str(ome).strip().upper()
                         if chave_ome not in mecanismo_abas:
                             mecanismo_abas[chave_ome] = []
                         mecanismo_abas[chave_ome].append(row)
                 
-                # Criar as abas padronizadas no Excel sem duplicações de nomes
+                # Gerar as abas exclusivas por OME
                 for nome_ome, lista_rows in mecanismo_abas.items():
                     df_aba = pd.DataFrame(lista_rows)
                     nome_aba = nome_ome[:31]
                     if not nome_aba:
-                        nome_aba = "OUTROS"
+                        nome_aba = "SEM OME"
                     
                     df_aba.to_excel(writer, index=False, sheet_name=nome_aba)
+            else:
+                # Caso nenhuma coluna seja identificada, gera em uma aba padrão
+                df_final.to_excel(writer, index=False, sheet_name='CADASTROS')
         
-        st.success("Sucesso! OMEs e TJPE unificados e estruturados sem duplicidades de abas.")
+        st.success("Sucesso! Relatórios divididos exclusivamente por abas de OME.")
         
         st.download_button(
             label="📥 Baixar Planilha Consolidada por OMEs",
