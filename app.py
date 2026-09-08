@@ -22,12 +22,12 @@ def padronizar_ome(texto_ome):
         
     texto = str(texto_ome).upper().strip()
     
-    if not texto or texto == "NAN":
+    if not texto or texto == "NAN" or texto == "NONE":
         return "SEM OME"
         
     # Mapeamentos específicos e especializadas / programas
     if any(k in texto for k in ["DASDH", "PATRULHA DO BAIRRO", "DIRETORIA DE ASSISTENCIA"]):
-        return "DASDH / PATRULHA DO BAIRRO"
+        return "DASDH - PATRULHA DO BAIRRO"
     if "BOPE" in texto:
         return "BOPE"
     if "CHOQUE" in texto or "BPCHOQUE" in texto:
@@ -76,7 +76,7 @@ def padronizar_ome(texto_ome):
 
     # Limpeza genérica caso não caia em nenhuma regra específica
     nome_limpo = re.sub(r'[\\/*?:\[\]]', '', texto).strip()
-    return nome_limpo[:31]
+    return nome_limpo[:31] if nome_limpo else "OUTROS"
 
 if arquivos_zip:
     tabelas_encontradas = []
@@ -141,18 +141,19 @@ if arquivos_zip:
             
             # Separar por OME Padronizada
             if coluna_ome:
-                # Criar uma coluna auxiliar temporária com a OME padronizada
                 df_final['OME_Padronizada'] = df_final[coluna_ome].apply(padronizar_ome)
                 
                 grupos = df_final.groupby('OME_Padronizada')
                 
                 for nome_ome_padrao, df_grupo in grupos:
-                    # Remover coluna auxiliar antes de salvar na aba da OME
                     df_aba = df_grupo.drop(columns=['OME_Padronizada'])
                     
-                    nome_aba = nome_ome_padrao[:31]
+                    # Garantia estrita de que o nome da aba não seja vazio
+                    nome_aba = str(nome_ome_padrao).strip()[:31]
+                    if not nome_aba:
+                        nome_aba = "OUTROS"
                     
-                    sheet_names_existentes = writer.sheets.keys()
+                    sheet_names_existentes = list(writer.sheets.keys())
                     count = 1
                     nome_aba_final = nome_aba
                     while nome_aba_final in sheet_names_existentes:
