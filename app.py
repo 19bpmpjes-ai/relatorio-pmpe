@@ -24,7 +24,7 @@ def extrair_omes(texto_ome):
     if not texto_original or texto_original in ["NAN", "NONE"]:
         return ["SEM OME"]
 
-    # Quebra o texto se houver múltiplas OMEs separadas por quebra de linha, vírgula, barra ou 'E'
+    # Quebra o texto se houver múltiplas OMEs
     linhas = re.split(r'[\n\r,;/]|(?<=\d)\s+E\s+|(?<=\w)\s+E\s+(?=\d|\w)', texto_original)
     omes_encontradas = set()
 
@@ -33,8 +33,11 @@ def extrair_omes(texto_ome):
         if not texto:
             continue
 
-        # Mapeamentos Especiais / Múltiplas OMEs populares
-        if "TRIBUNAL DE CONTAS" in texto or "TCE" in texto:
+        # TJPE / Joana Bezerra / Tribunal de Justiça
+        if any(k in texto for k in ["TJPE", "TJ-PE", "JOANA BEZERRA", "TRIBUNAL DE JUSTIÇA", "TRIBUNAL DE JUSTICA"]):
+            omes_encontradas.add("TJPE")
+        # TCE / Tribunal de Contas
+        elif "TRIBUNAL DE CONTAS" in texto or "TCE" in texto:
             omes_encontradas.add("TCE")
         elif "MARIA DA PENHA" in texto:
             omes_encontradas.add("MARIA DA PENHA")
@@ -73,12 +76,13 @@ def extrair_omes(texto_ome):
                 omes_encontradas.add(f"{cipm_match.group(1)}ª CIPM")
                 continue
 
-            # Captura de BPM (Procura por números seguidos de BPM ou números isolados de 1 a 29)
+            # Captura de BPM (Normaliza qualquer menção de número + BPM para 'Xº BPM')
             bpm_match = re.search(r'(\d+)\s*º?\s*BPM', texto)
             if bpm_match:
                 omes_encontradas.add(f"{bpm_match.group(1)}º BPM")
                 continue
 
+            # Captura de número isolado de 1 a 29
             num_match = re.search(r'\b(\d{1,2})\s*º?\b', texto)
             if num_match:
                 num = int(num_match.group(1))
@@ -86,7 +90,7 @@ def extrair_omes(texto_ome):
                     omes_encontradas.add(f"{num}º BPM")
                     continue
 
-            # Limpeza genérica para outros casos
+            # Limpeza genérica caso não caia em regras estritas
             nome_limpo = re.sub(r'[\\/*?:\[\]]', '', texto).strip()
             if nome_limpo:
                 omes_encontradas.add(nome_limpo[:31])
@@ -161,27 +165,22 @@ if arquivos_zip:
                 for idx, row in df_final.iterrows():
                     lista_omes = extrair_omes(row[coluna_ome])
                     for ome in lista_omes:
-                        if ome not in mecanismo_abas:
-                            mecanismo_abas[ome] = []
-                        mecanismo_abas[ome].append(row)
+                        # Força chave única em maiúsculas e sem espaços extras
+                        chave_ome = str(ome).strip().upper()
+                        if chave_ome not in mecanismo_abas:
+                            mecanismo_abas[chave_ome] = []
+                        mecanismo_abas[chave_ome].append(row)
                 
-                # Criar as abas padronizadas no Excel
+                # Criar as abas padronizadas no Excel sem duplicações de nomes
                 for nome_ome, lista_rows in mecanismo_abas.items():
                     df_aba = pd.DataFrame(lista_rows)
-                    nome_aba = str(nome_ome).strip()[:31]
+                    nome_aba = nome_ome[:31]
                     if not nome_aba:
                         nome_aba = "OUTROS"
                     
-                    sheet_names_existentes = list(writer.sheets.keys())
-                    count = 1
-                    nome_aba_final = nome_aba
-                    while nome_aba_final in sheet_names_existentes:
-                        nome_aba_final = f"{nome_aba[:28]}_{count}"
-                        count += 1
-                    
-                    df_aba.to_excel(writer, index=False, sheet_name=nome_aba_final)
+                    df_aba.to_excel(writer, index=False, sheet_name=nome_aba)
         
-        st.success("Sucesso! Múltiplas OMEs identificadas e policiais devidamente alocados em suas respectivas abas.")
+        st.success("Sucesso! OMEs e TJPE unificados e estruturados sem duplicidades de abas.")
         
         st.download_button(
             label="📥 Baixar Planilha Consolidada por OMEs",
