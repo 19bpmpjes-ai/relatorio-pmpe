@@ -1,5 +1,0 @@
-pandas
-beautifulsoup4
-openpyxl
-lxml
-streamlit
