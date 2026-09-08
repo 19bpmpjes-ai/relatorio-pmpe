@@ -8,16 +8,14 @@ import re
 st.set_page_config(page_title="Processador de Relatórios PMPE", layout="wide")
 
 st.title("📊 Processador de Relatórios SEI por OME")
-st.write("Envie um ou **vários arquivos .zip** contendo os documentos HTML para gerar a planilha consolidada e organizada em abas por OME.")
+st.write("Envie um ou **vários arquivos .zip** contendo os documentos HTML para gerar a planilha consolidada.")
 
-# Alterado para aceitar múltiplos arquivos ZIP simultaneamente
 arquivos_zip = st.file_uploader("Arraste e solte os arquivos .ZIP aqui", type=["zip"], accept_multiple_files=True)
 
 if arquivos_zip:
     tabelas_encontradas = []
     
-    with st.spinner("Processando e organizando todos os arquivos HTML dos ZIPs..."):
-        # Percorre cada arquivo ZIP enviado
+    with st.spinner("Processando e organizando arquivos..."):
         for arquivo_zip in arquivos_zip:
             with zipfile.ZipFile(arquivo_zip, 'r') as z:
                 for nome_arquivo in z.namelist():
@@ -36,17 +34,16 @@ if arquivos_zip:
                                     
                                     if (tem_grad and tem_matr) or (tem_matr and tem_nome) or (tem_grad and tem_nome):
                                         
-                                        # Promoção da primeira linha para cabeçalho caso necessário
+                                        # Promover primeira linha para cabeçalho se contiver os títulos
                                         PRIMEIRA_LINHA = " ".join([str(val).upper() for val in df.iloc[0].values]) if len(df) > 0 else ""
                                         if any(k in PRIMEIRA_LINHA for k in ["GRAD", "MAT", "NOME"]):
                                             df.columns = df.iloc[0]
                                             df = df[1:].reset_index(drop=True)
                                         
-                                        # Remover colunas duplicadas
+                                        # Remover duplicadas
                                         df = df.loc[:, ~df.columns.duplicated()].copy()
                                         df.columns = [str(c).strip() if pd.notna(c) else f"Coluna_{i}" for i, c in enumerate(df.columns)]
                                         
-                                        # Adicionar identificação do arquivo e do ZIP de origem
                                         df.insert(0, 'Arquivo_Origem', os.path.basename(nome_arquivo))
                                         df.insert(0, 'ZIP_Origem', arquivo_zip.name)
                                         tabelas_encontradas.append(df)
@@ -58,30 +55,43 @@ if arquivos_zip:
         df_final = pd.concat(tabelas_encontradas, ignore_index=True)
         df_final.dropna(how='all', inplace=True)
         
-        # Identificar coluna de OME
+        # Busca precisa da coluna da OME (excluindo explicitamente colunas de NOME)
         coluna_ome = None
+        
+        # 1ª Tentativa: Busca termos exatos de OME/Destino
         for col in df_final.columns:
             col_upper = str(col).upper()
-            if any(k in col_upper for k in ["OME DESTINO", "OME DE DESTINO", "DESTINO", "OME"]):
+            if ("OME" in col_upper or "DESTINO" in col_upper) and "NOME" not in col_upper:
                 coluna_ome = col
                 break
-        
+                
+        # 2ª Tentativa: Se não achou, procura por termos secundários de lotação/unidade
+        if not coluna_ome:
+            for col in df_final.columns:
+                col_upper = str(col).upper()
+                if any(k in col_upper for k in ["UNIDADE", "LOTAÇÃO", "LOTACAO", "OPÇÃO", "OPCAO"]) and "NOME" not in col_upper:
+                    coluna_ome = col
+                    break
+
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            # 1. Aba geral com TODOS
+            # Aba com a consolidação completa
             df_final.to_excel(writer, index=False, sheet_name='TODOS')
             
-            # 2. Abas separadas por OME
+            # Separar em abas por OME se a coluna for identificada
             if coluna_ome:
                 grupos = df_final.groupby(coluna_ome)
                 
                 for nome_ome, df_grupo in grupos:
+                    # Limpeza para nome de aba válido no Excel
                     nome_aba = re.sub(r'[\\/*?:\[\]]', '', str(nome_ome)).strip().upper()
                     if not nome_aba or nome_aba == 'NAN':
                         nome_aba = "SEM OME"
                     
+                    # Limitar tamanho do nome da aba (máx 31 caracteres do Excel)
                     nome_aba = nome_aba[:31]
                     
+                    # Evitar abas duplicadas
                     sheet_names_existentes = writer.sheets.keys()
                     count = 1
                     nome_aba_final = nome_aba
@@ -91,12 +101,12 @@ if arquivos_zip:
                     
                     df_grupo.to_excel(writer, index=False, sheet_name=nome_aba_final)
         
-        st.success(f"Sucesso! {len(tabelas_encontradas)} tabelas processadas a partir de {len(arquivos_zip)} arquivo(s) ZIP.")
+        st.success(f"Sucesso! Dados consolidados e divididos por OME.")
         
         st.download_button(
-            label="📥 Baixar Planilha Excel Consolidada (Todas OMEs)",
+            label="📥 Baixar Planilha Separada por OMEs",
             data=buffer.getvalue(),
-            file_name="Relatorio_Geral_Policiais_Por_OME.xlsx",
+            file_name="Relatorio_Policiais_Por_OME.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
     else:
