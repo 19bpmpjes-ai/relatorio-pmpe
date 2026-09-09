@@ -52,21 +52,26 @@ def padronizar_e_organizar_colunas(df):
         # Coluna 8: Disponibilidade / Turno
         elif any(k in c_limpo for k in ["DISP", "TURNO", "DIAS", "HORA", "HORARIO", "DISPONIBILIDADE"]) and "DISPONIBILIDADE / TURNO" not in novas_colunas.values():
             novas_colunas[col] = "DISPONIBILIDADE / TURNO"
-        # Coluna 9: OME / Opções (Primeira ocorrência principal)
+        # Coluna 9: OME / Opções
         elif any(k in c_limpo for k in ["OPC", "OME", "DESTINO", "UNIDADE", "LOTACAO", "PREENCHER", "BATALHAO"]) and "OME / OPÇÕES" not in novas_colunas.values():
             novas_colunas[col] = "OME / OPÇÕES"
             
     df = df.rename(columns=novas_colunas)
     return df
 
-def extrair_omes_da_linha(row, colunas_ignoradas_busca):
+def extrair_omes_da_linha(row):
     """
-    Extrai as OMEs da linha exigindo casamento estrito das siglas (BPM, BIESP, CIPM).
-    Ignora '3º CIA' para não jogar o policial no '3º BPM'.
+    Analisa toda a linha (focando prioritariamente nas colunas de OME/Opções)
+    para capturar BPM, CIPM, BIESP e Unidades Especializadas.
     """
     texto_linha = []
+    
+    # Dá prioridade total para a coluna OME / OPÇÕES se ela existir na linha
+    if "OME / OPÇÕES" in row and pd.notna(row["OME / OPÇÕES"]):
+        texto_linha.append(str(row["OME / OPÇÕES"]).upper())
+        
     for col, val in row.items():
-        if col not in colunas_ignoradas_busca and pd.notna(val):
+        if col not in ["ARQUIVO ORIGEM", "GRADUAÇÃO", "MATRÍCULA", "NOME COMPLETO", "TELEFONE"] and pd.notna(val):
             texto_linha.append(str(val).upper())
             
     texto_original = " ".join(texto_linha).strip()
@@ -75,7 +80,7 @@ def extrair_omes_da_linha(row, colunas_ignoradas_busca):
 
     omes_encontradas = set()
 
-    # Mapeamento de OMEs Especializadas
+    # Unidades Especializadas
     if any(k in texto_original for k in ["TJPE", "TJ-PE", "JOANA BEZERRA", "TRIBUNAL DE JUSTIÇA", "TRIBUNAL DE JUSTICA"]):
         omes_encontradas.add("TJPE")
     if "TRIBUNAL DE CONTAS" in texto_original or "TCE" in texto_original:
@@ -105,24 +110,18 @@ def extrair_omes_da_linha(row, colunas_ignoradas_busca):
     if "BPTUR" in texto_original or "TURÍSTICO" in texto_original or "TURISTICO" in texto_original:
         omes_encontradas.add("BPTur")
 
-    # REGRA ESTRITA: Exige explicitamente a palavra BPM ou BIESP ligada ao número
-    bpm_matches = re.findall(r'(\d+)\s*º?\s*BPM', texto_original)
+    # Mapeamento de Batalhões e Companhias com suporte a flexibilidade de símbolos (º, °, ª, ou sem ordinal)
+    bpm_matches = re.findall(r'(\d+)\s*[º°ª]?\s*BPM', texto_original)
     for num in bpm_matches:
         omes_encontradas.add(f"{num}º BPM")
 
-    biesp_matches = re.findall(r'(\d+)\s*º?\s*BIESP', texto_original)
+    biesp_matches = re.findall(r'(\d+)\s*[º°ª]?\s*BIESP', texto_original)
     for num in biesp_matches:
         omes_encontradas.add(f"{num}º BIEsp")
 
-    cipm_matches = re.findall(r'(\d+)\s*[ªº]?\s*CIPM', texto_original)
+    cipm_matches = re.findall(r'(\d+)\s*[º°ª]?\s*CIPM', texto_original)
     for num in cipm_matches:
         omes_encontradas.add(f"{num}ª CIPM")
-
-    # Companhias isoladas (SOMENTE se não houver BPM identificado)
-    if not omes_encontradas:
-        cpm_matches = re.findall(r'(\d+)\s*[ªº]?\s*(?:CPM|CIA)', texto_original)
-        for num in cpm_matches:
-            omes_encontradas.add(f"{num}ª CIA")
 
     return list(omes_encontradas) if omes_encontradas else ["SEM OME"]
 
@@ -187,15 +186,13 @@ if arquivos_zip:
         
         df_final = df_final[colunas_existentes + outras_colunas]
 
-        colunas_ignoradas = ["ARQUIVO ORIGEM", "GRADUAÇÃO", "MATRÍCULA", "NOME COMPLETO", "TELEFONE"]
-
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             
             mecanismo_abas = {}
             
             for idx, row in df_final.iterrows():
-                lista_omes = extrair_omes_da_linha(row, colunas_ignoradas)
+                lista_omes = extrair_omes_da_linha(row)
                 
                 for ome in lista_omes:
                     chave_ome = str(ome).strip().upper()
@@ -211,10 +208,10 @@ if arquivos_zip:
                 
                 df_aba.to_excel(writer, index=False, sheet_name=nome_aba)
         
-        st.success("Sucesso! Mapeamento corrigido estritamente. O '3º CIA' não vai mais para a aba do '3º BPM'.")
+        st.success("Sucesso! Leitura da coluna 'OME / OPÇÕES' corrigida. Todos os Batalhões e CIPMs foram distribuídos nas suas respectivas abas.")
         
         st.download_button(
-            label="📥 Baixar Planilha Consolidada e Corrigida",
+            label="📥 Baixar Planilha Consolidada Corrigida",
             data=buffer.getvalue(),
             file_name="Relatorio_Policiais_Por_OME_Corrigido.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
