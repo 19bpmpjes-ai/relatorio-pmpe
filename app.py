@@ -39,9 +39,11 @@ def extrair_omes(texto_ome):
         # TCE / Tribunal de Contas
         elif "TRIBUNAL DE CONTAS" in texto or "TCE" in texto:
             omes_encontradas.add("TCE")
-        elif "MARIA DA PENHA" in texto:
+        # Maria da Penha
+        elif any(k in texto for k in ["MARIA DA PENHA", "PPMP", "PATRULHA MARIA DA PENHA"]):
             omes_encontradas.add("MARIA DA PENHA")
-        elif any(k in texto for k in ["DASDH", "PATRULHA DO BAIRRO", "DIRETORIA DE ASSISTENCIA"]):
+        # DASDH / Patrulha do Bairro / Patrulha Escolar / BGPESC
+        elif any(k in texto for k in ["DASDH", "PATRULHA DO BAIRRO", "PATRULHA ESCOLAR", "ESCOLAR", "BGPESC", "DIRETORIA DE ASSISTENCIA"]):
             omes_encontradas.add("DASDH - PATRULHA DO BAIRRO")
         elif "BOPE" in texto:
             omes_encontradas.add("BOPE")
@@ -141,14 +143,12 @@ if arquivos_zip:
         # Localização da coluna de OME / Opções de Destino
         coluna_ome = None
         
-        # 1ª Prioridade: Cabeçalhos contendo OME, DESTINO, OPÇÃO ou OPÇÕES
         for col in df_final.columns:
             col_upper = str(col).upper()
             if any(k in col_upper for k in ["OME", "DESTINO", "OPÇÃO", "OPCAO", "OPÇÕES", "OPCOES"]) and "NOME" not in col_upper:
                 coluna_ome = col
                 break
                 
-        # 2ª Prioridade: Lotação ou Unidade
         if not coluna_ome:
             for col in df_final.columns:
                 col_upper = str(col).upper()
@@ -159,7 +159,6 @@ if arquivos_zip:
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             
-            # Processa e distribui diretamente nas abas das OMEs
             if coluna_ome:
                 mecanismo_abas = {}
                 
@@ -171,7 +170,6 @@ if arquivos_zip:
                             mecanismo_abas[chave_ome] = []
                         mecanismo_abas[chave_ome].append(row)
                 
-                # Gerar as abas exclusivas por OME
                 for nome_ome, lista_rows in mecanismo_abas.items():
                     df_aba = pd.DataFrame(lista_rows)
                     nome_aba = nome_ome[:31]
@@ -180,10 +178,9 @@ if arquivos_zip:
                     
                     df_aba.to_excel(writer, index=False, sheet_name=nome_aba)
             else:
-                # Caso nenhuma coluna seja identificada, gera em uma aba padrão
                 df_final.to_excel(writer, index=False, sheet_name='CADASTROS')
         
-        st.success("Sucesso! Relatórios divididos exclusivamente por abas de OME.")
+        st.success("Sucesso! OMEs, Patrulha Escolar e Maria da Penha categorizados com precisão.")
         
         st.download_button(
             label="📥 Baixar Planilha Consolidada por OMEs",
