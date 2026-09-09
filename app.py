@@ -61,8 +61,8 @@ def padronizar_e_organizar_colunas(df):
 
 def extrair_omes_da_linha(row, colunas_ignoradas_busca):
     """
-    Analisa todas as colunas de opções na linha para capturar Batalhões (BPM),
-    Companhias (CIPM/CPM) e Unidades Especializadas com precisão total.
+    Analisa a linha priorizando Batalhões (BPM) sobre Companhias (CIA/CPM).
+    Evita que '21º BPM (3ª CIA)' vá parar na aba do '3º BPM'.
     """
     texto_linha = []
     for col, val in row.items():
@@ -75,7 +75,7 @@ def extrair_omes_da_linha(row, colunas_ignoradas_busca):
 
     omes_encontradas = set()
 
-    # Mapeamento de OMEs Especializadas e Específicas
+    # Mapeamento de OMEs Especializadas
     if any(k in texto_original for k in ["TJPE", "TJ-PE", "JOANA BEZERRA", "TRIBUNAL DE JUSTIÇA", "TRIBUNAL DE JUSTICA"]):
         omes_encontradas.add("TJPE")
     if "TRIBUNAL DE CONTAS" in texto_original or "TCE" in texto_original:
@@ -105,21 +105,27 @@ def extrair_omes_da_linha(row, colunas_ignoradas_busca):
     if "BPTUR" in texto_original or "TURÍSTICO" in texto_original or "TURISTICO" in texto_original:
         omes_encontradas.add("BPTur")
 
-    # Mapeamento Flexível de Batalhões (Ex: 3º BPM (2º CIA), 12º BPM, 10º BPM, 1 BPM)
-    # Busca números seguidos de BPM ou BIESP/CIPM
-    biesp_matches = re.findall(r'(\d+)\s*º?\s*BIESP', texto_original)
-    for num in biesp_matches:
-        omes_encontradas.add(f"{num}º BIEsp")
-
-    cipm_matches = re.findall(r'(\d+)\s*[ªº]?\s*CIPM', texto_original)
-    for num in cipm_matches:
-        omes_encontradas.add(f"{num}ª CIPM")
-
+    # 1. PRIORIDADE MÁXIMA: Identificar Batalhões (BPM) e BIESP
     bpm_matches = re.findall(r'(\d+)\s*º?\s*BPM', texto_original)
     for num in bpm_matches:
         omes_encontradas.add(f"{num}º BPM")
 
-    # Se ainda não encontrou nada e tem o formato numérico limpo (Ex: "3", "12", "10") próximo de "BPM" ou "CIA"
+    biesp_matches = re.findall(r'(\d+)\s*º?\s*BIESP', texto_original)
+    for num in biesp_matches:
+        omes_encontradas.add(f"{num}º BIEsp")
+
+    # 2. SEGUNDA PRIORIDADE: CIPM (Companhia Independente)
+    cipm_matches = re.findall(r'(\d+)\s*[ªº]?\s*CIPM', texto_original)
+    for num in cipm_matches:
+        omes_encontradas.add(f"{num}ª CIPM")
+
+    # 3. TERCEIRA PRIORIDADE: Companhia isolada SOMENTE se não houver BPM identificado
+    if not omes_encontradas:
+        cpm_matches = re.findall(r'(\d+)\s*[ªº]?\s*(?:CPM|CIA)', texto_original)
+        for num in cpm_matches:
+            omes_encontradas.add(f"{num}ª CIA")
+
+    # 4. Caso tenha apenas número solto sem sigla e nenhuma OME foi achada até agora
     if not omes_encontradas:
         num_flex = re.findall(r'\b(\d{1,2})\b', texto_original)
         for num in num_flex:
@@ -214,7 +220,7 @@ if arquivos_zip:
                 
                 df_aba.to_excel(writer, index=False, sheet_name=nome_aba)
         
-        st.success("Sucesso! Policiais com '3º BPM (2º CIA)', '12º BPM' e '10º BPM' foram devidamente realocados em suas respectivas abas.")
+        st.success("Sucesso! '21º BPM (3ª CIA)' agora vai corretamente para a aba '21º BPM'.")
         
         st.download_button(
             label="📥 Baixar Planilha Consolidada com Batalhões Corrigidos",
