@@ -64,7 +64,6 @@ def extrair_omes_da_linha(row):
     Varre os valores reais da linha inteira independentemente do nome da coluna.
     Garante a captura de BPM, CIPM, BIESP e Especializadas.
     """
-    # Une todos os textos da linha convertidos para maiúsculo
     valores_linha = [str(val).upper().strip() for val in row.values if pd.notna(val)]
     texto_original = " ".join(valores_linha)
     
@@ -103,8 +102,7 @@ def extrair_omes_da_linha(row):
     if "BPTUR" in texto_original or "TURÍSTICO" in texto_original or "TURISTICO" in texto_original:
         omes_encontradas.add("BPTur")
 
-    # 2. Busca ultra-flexível por Batalhões (Ex: 3º BPM, 3ºBPM, 3 BPM, 12º BPM, 10º BPM)
-    # Pega qualquer número seguido de BPM (mesmo que haja simbolos variados de ordinal entre eles)
+    # 2. Busca por Batalhões (Ex: 3º BPM, 3ºBPM, 12º BPM, 10º BPM)
     bpm_matches = re.findall(r'(\d+)\s*[^A-Z0-9]?\s*BPM', texto_original)
     for num in bpm_matches:
         omes_encontradas.add(f"{num}º BPM")
@@ -119,7 +117,7 @@ def extrair_omes_da_linha(row):
     for num in cipm_matches:
         omes_encontradas.add(f"{num}ª CIPM")
 
-    # 5. Múltiplas opções por barra caso não tenha achado com a sigla BPM (Ex: "6/12/13/18")
+    # 5. Múltiplas opções por barra (Ex: "6/12/13/18")
     if not omes_encontradas:
         barras_matches = re.findall(r'\b(\d{1,2}(?:\/\d{1,2})+)\b', texto_original)
         for grupo in barras_matches:
@@ -180,6 +178,10 @@ if arquivos_zip:
 
         df_final = padronizar_e_organizar_colunas(df_final)
 
+        # LIMPEZA DA MATRÍCULA: Remove pontos, hífens e espaços
+        if "MATRÍCULA" in df_final.columns:
+            df_final["MATRÍCULA"] = df_final["MATRÍCULA"].astype(str).apply(lambda x: re.sub(r'[^0-9]', '', x))
+
         ordem_estrita = [
             "ARQUIVO ORIGEM",            # Coluna 1
             "GRADUAÇÃO",                 # Coluna 2
@@ -203,7 +205,6 @@ if arquivos_zip:
             mecanismo_abas = {}
             
             for idx, row in df_final.iterrows():
-                # Ignora linhas de cabeçalho repetidas
                 grad_val = str(row.get("GRADUAÇÃO", "")).upper()
                 nome_val = str(row.get("NOME COMPLETO", "")).upper()
                 if "GRAD" in grad_val or "NOME" in nome_val or grad_val == "***":
@@ -225,7 +226,7 @@ if arquivos_zip:
                 
                 df_aba.to_excel(writer, index=False, sheet_name=nome_aba)
         
-        st.success("Sucesso! Leitura corrigida. Todos os Batalhões (3º BPM, 10º BPM, 12º BPM) foram redirecionados para suas abas próprias.")
+        st.success("Sucesso! Matrículas limpas (apenas números) e policiais organizados por OME.")
         
         st.download_button(
             label="📥 Baixar Planilha Consolidada Corrigida",
