@@ -8,14 +8,13 @@ import re
 st.set_page_config(page_title="Processador de Relatórios PMPE", layout="wide")
 
 st.title("📊 Processador de Relatórios SEI por OME")
-st.write("Envie um ou **vários arquivos .zip** para consolidar e organizar os policiais em colunas alinhadas por OME.")
+st.write("Envie um ou **vários arquivos .zip** para consolidar e organizar os policiais em colunas rigorosamente unificadas.")
 
 arquivos_zip = st.file_uploader("Arraste e solte os arquivos .ZIP aqui", type=["zip"], accept_multiple_files=True)
 
 def desduplicar_colunas(df):
     """
-    Garante que não existam nomes de colunas duplicados na mesma tabela,
-    evitando o erro InvalidIndexError durante o pd.concat.
+    Garante que não existam nomes de colunas duplicados na mesma tabela.
     """
     cols = pd.Series(df.columns)
     for dup in cols[cols.duplicated()].unique():
@@ -23,37 +22,63 @@ def desduplicar_colunas(df):
     df.columns = cols
     return df
 
-def padronizar_colunas(df):
+def padronizar_e_consolidar_colunas(df):
     """
-    Mapeia e renomeia colunas com nomes parecidos para nomes padronizados,
-    garantindo alinhamento perfeito na planilha.
+    Identifica de forma ampla todas as variações/abreviações de títulos 
+    e consolida os dados em colunas padronizadas.
     """
-    mapa_colunas = {}
+    # Dicionário para unificar colunas com base em padrões de busca
+    novas_colunas = {}
     
     for col in df.columns:
         c_upper = str(col).upper().strip()
+        c_limpo = re.sub(r'[^A-Z0-9]', '', c_upper) # Remove pontos, traços, espaços
         
-        if any(k in c_upper for k in ["GRAD", "POSTO"]):
-            mapa_colunas[col] = "GRADUAÇÃO"
-        elif any(k in c_upper for k in ["MATR", "MATÍ"]):
-            mapa_colunas[col] = "MATRÍCULA"
-        elif "NOME" in c_upper:
-            mapa_colunas[col] = "NOME COMPLETO"
-        elif any(k in c_upper for k in ["TEL", "FONE", "CELULAR"]):
-            mapa_colunas[col] = "TELEFONE"
-        elif any(k in c_upper for k in ["DISP", "DIAS"]):
-            mapa_colunas[col] = "DISPONIBILIDADE"
-        elif any(k in c_upper for k in ["TURNO", "HORÁRIO", "HORARIO"]):
-            mapa_colunas[col] = "TURNO"
-        elif any(k in c_upper for k in ["MODALID", "FUNÇÃO", "FUNCAO"]):
-            mapa_colunas[col] = "MODALIDADE / FUNÇÃO"
-        elif any(k in c_upper for k in ["MOTORISTA", "CNH"]):
-            mapa_colunas[col] = "MOTORISTA"
-        elif any(k in c_upper for k in ["OPÇ", "OPC", "OME", "DESTINO", "UNIDADE"]):
-            mapa_colunas[col] = "OME_SOLICITADA"
+        # Graduação
+        if any(k in c_limpo for k in ["GRAD", "POSTO", "PATENTE", "POSTOGRAD"]):
+            novas_colunas[col] = "GRADUAÇÃO"
+        # Matrícula
+        elif any(k in c_limpo for k in ["MATR", "MATI", "MAT", "MATRICULA", "MATRIC"]):
+            novas_colunas[col] = "MATRÍCULA"
+        # Nome
+        elif "NOME" in c_limpo or "POLICIAL" in c_limpo:
+            novas_colunas[col] = "NOME COMPLETO"
+        # Telefone
+        elif any(k in c_limpo for k in ["TEL", "FONE", "CEL", "CELULAR", "CONTATO", "TELEF"]):
+            novas_colunas[col] = "TELEFONE"
+        # Disponibilidade
+        elif any(k in c_limpo for k in ["DISP", "DIAS", "DISPONIBILIDADE"]):
+            novas_colunas[col] = "DISPONIBILIDADE"
+        # Turno
+        elif any(k in c_limpo for k in ["TURNO", "HORA", "HORARIO"]):
+            novas_colunas[col] = "TURNO"
+        # Modalidade / Função
+        elif any(k in c_limpo for k in ["MODALID", "FUNCAO", "FUNCA", "CARGO"]):
+            novas_colunas[col] = "MODALIDADE / FUNÇÃO"
+        # Motorista
+        elif any(k in c_limpo for k in ["MOTORISTA", "CNH", "CONDUTOR"]):
+            novas_colunas[col] = "MOTORISTA"
+        # Opções / OME
+        elif any(k in c_limpo for k in ["OPC", "OME", "DESTINO", "UNIDADE", "LOTACAO"]):
+            novas_colunas[col] = "OME_SOLICITADA"
             
-    df = df.rename(columns=mapa_colunas)
-    return df
+    df = df.rename(columns=novas_colunas)
+    
+    # Se existirem colunas duplicadas geradas pela renomeação (ex: 'MATR' e 'MATRICULA' virarem 'MATRÍCULA'),
+    # junta os valores em uma única coluna sem perder nada
+    cols_unicas = {}
+    for col_name in df.columns:
+        if col_name not in cols_unicas:
+            # Seleciona todas as colunas que agora compartilham este nome
+            sub_df = df.loc[:, df.columns == col_name]
+            if sub_df.shape[1] > 1:
+                # Junta os valores das colunas preenchendo lacunas
+                cols_unicas[col_name] = sub_df.bfill(axis=1).iloc[:, 0]
+            else:
+                cols_unicas[col_name] = sub_df.iloc[:, 0]
+                
+    df_consolidado = pd.DataFrame(cols_unicas)
+    return df_consolidado
 
 def extrair_omes(texto_ome):
     """
@@ -135,7 +160,7 @@ def extrair_omes(texto_ome):
 if arquivos_zip:
     tabelas_encontradas = []
     
-    with st.spinner("Lendo e organizando colunas dos relatórios..."):
+    with st.spinner("Unificando colunas e processando relatórios..."):
         for arquivo_zip in arquivos_zip:
             with zipfile.ZipFile(arquivo_zip, 'r') as z:
                 for nome_arquivo in z.namelist():
@@ -159,17 +184,11 @@ if arquivos_zip:
                                             df.columns = df.iloc[0]
                                             df = df[1:].reset_index(drop=True)
                                         
-                                        # Remove valores nulos do nome das colunas
                                         df.columns = [str(c).strip() if pd.notna(c) else f"Coluna_{i}" for i, c in enumerate(df.columns)]
                                         
-                                        # Trata e remove duplicações de colunas na própria tabela
+                                        # Trata e consolida as colunas da tabela individual
                                         df = desduplicar_colunas(df)
-                                        
-                                        # Padroniza nomes das colunas
-                                        df = padronizar_colunas(df)
-                                        
-                                        # Trata duplicações geradas após a padronização
-                                        df = desduplicar_colunas(df)
+                                        df = padronizar_e_consolidar_colunas(df)
                                         
                                         df.insert(0, 'Arquivo_Origem', os.path.basename(nome_arquivo))
                                         tabelas_encontradas.append(df)
@@ -178,11 +197,14 @@ if arquivos_zip:
                                 continue
 
     if tabelas_encontradas:
-        # Garante a união segura das tabelas
+        # Junta todas as tabelas tratadas
         df_final = pd.concat(tabelas_encontradas, ignore_index=True, axis=0)
         df_final.dropna(how='all', inplace=True)
 
-        # Reorganizar a ordem visual das colunas padrão
+        # Consolidação final de colunas do DataFrame global
+        df_final = padronizar_e_consolidar_colunas(df_final)
+
+        # Reorganizar a ordem fixa das colunas principais
         ordem_desejada = ["Arquivo_Origem", "GRADUAÇÃO", "MATRÍCULA", "NOME COMPLETO", "TELEFONE", "OME_SOLICITADA", "TURNO", "DISPONIBILIDADE", "MOTORISTA", "MODALIDADE / FUNÇÃO"]
         colunas_existentes = [c for c in ordem_desejada if c in df_final.columns]
         outras_colunas = [c for c in df_final.columns if c not in colunas_existentes]
@@ -193,11 +215,9 @@ if arquivos_zip:
             
             mecanismo_abas = {}
             
-            # Identifica todas as colunas que possuem OME_SOLICITADA ou variação
             cols_ome = [c for c in df_final.columns if "OME_SOLICITADA" in c or "OPÇ" in c or "OPC" in c]
             
             for idx, row in df_final.iterrows():
-                # Concatena os valores de colunas de opções presentes no registro
                 texto_linha_opcoes = " ".join([str(row[c]) for c in cols_ome if pd.notna(row[c])])
                 lista_omes = extrair_omes(texto_linha_opcoes)
                 
@@ -215,7 +235,7 @@ if arquivos_zip:
                 
                 df_aba.to_excel(writer, index=False, sheet_name=nome_aba)
         
-        st.success("Sucesso! Colunas unificadas, alinhadas e erro corrigido.")
+        st.success("Sucesso! Todas as variações de colunas foram unificadas de forma estrita.")
         
         st.download_button(
             label="📥 Baixar Planilha Consolidada e Organizada",
