@@ -178,9 +178,9 @@ if arquivos_zip:
 
         df_final = padronizar_e_organizar_colunas(df_final)
 
-        # LIMPEZA DA MATRÍCULA: Remove pontos, hífens e espaços
+        # LIMPEZA DA MATRÍCULA SEM USAR LAMBDA: Compatível com Python 3.14/Pandas
         if "MATRÍCULA" in df_final.columns:
-            df_final["MATRÍCULA"] = df_final["MATRÍCULA"].astype(str).apply(lambda x: re.sub(r'[^0-9]', '', x))
+            df_final["MATRÍCULA"] = df_final["MATRÍCULA"].astype(str).str.replace(r'[^0-9]', '', regex=True)
 
         ordem_estrita = [
             "ARQUIVO ORIGEM",            # Coluna 1
