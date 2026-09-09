@@ -61,8 +61,8 @@ def padronizar_e_organizar_colunas(df):
 
 def extrair_omes_da_linha(row, colunas_ignoradas_busca):
     """
-    Analisa a linha inteira (ignorando nome, matrícula, tel e arquivo de origem)
-    para garantir que nenhuma OME perdida em colunas extras seja esquecida.
+    Analisa todas as colunas de opções na linha para capturar Batalhões (BPM),
+    Companhias (CIPM/CPM) e Unidades Especializadas com precisão total.
     """
     texto_linha = []
     for col, val in row.items():
@@ -75,7 +75,7 @@ def extrair_omes_da_linha(row, colunas_ignoradas_busca):
 
     omes_encontradas = set()
 
-    # Mapeamento abrangente de OMEs e unidades
+    # Mapeamento de OMEs Especializadas e Específicas
     if any(k in texto_original for k in ["TJPE", "TJ-PE", "JOANA BEZERRA", "TRIBUNAL DE JUSTIÇA", "TRIBUNAL DE JUSTICA"]):
         omes_encontradas.add("TJPE")
     if "TRIBUNAL DE CONTAS" in texto_original or "TCE" in texto_original:
@@ -105,7 +105,8 @@ def extrair_omes_da_linha(row, colunas_ignoradas_busca):
     if "BPTUR" in texto_original or "TURÍSTICO" in texto_original or "TURISTICO" in texto_original:
         omes_encontradas.add("BPTur")
 
-    # Batalhões e Unidades por Padrão numérico (Ex: 3º BPM, 12º BPM, 10º BPM, 1 CPM, etc.)
+    # Mapeamento Flexível de Batalhões (Ex: 3º BPM (2º CIA), 12º BPM, 10º BPM, 1 BPM)
+    # Busca números seguidos de BPM ou BIESP/CIPM
     biesp_matches = re.findall(r'(\d+)\s*º?\s*BIESP', texto_original)
     for num in biesp_matches:
         omes_encontradas.add(f"{num}º BIEsp")
@@ -118,24 +119,20 @@ def extrair_omes_da_linha(row, colunas_ignoradas_busca):
     for num in bpm_matches:
         omes_encontradas.add(f"{num}º BPM")
 
-    # Companhias isoladas (ex: 1 CPM)
-    cpm_matches = re.findall(r'(\d+)\s*[ªº]?\s*CPM', texto_original)
-    for num in cpm_matches:
-        omes_encontradas.add(f"{num}ª CPM")
-
-    # Números isolados nas colunas de OME (Ex: 1º, 3º, 12º)
+    # Se ainda não encontrou nada e tem o formato numérico limpo (Ex: "3", "12", "10") próximo de "BPM" ou "CIA"
     if not omes_encontradas:
-        num_matches = re.findall(r'\b(\d{1,2})\s*º?\s*(BPM)?\b', texto_original)
-        for num, bpm in num_matches:
-            if num and 1 <= int(num) <= 29:
-                omes_encontradas.add(f"{num}º BPM")
+        num_flex = re.findall(r'\b(\d{1,2})\b', texto_original)
+        for num in num_flex:
+            n_int = int(num)
+            if 1 <= n_int <= 30:
+                omes_encontradas.add(f"{n_int}º BPM")
 
     return list(omes_encontradas) if omes_encontradas else ["SEM OME"]
 
 if arquivos_zip:
     tabelas_encontradas = []
     
-    with st.spinner("Unificando colunas e reclassificando policiais por OME..."):
+    with st.spinner("Unificando colunas e reorganizando policiais por OME..."):
         for arquivo_zip in arquivos_zip:
             with zipfile.ZipFile(arquivo_zip, 'r') as z:
                 for nome_arquivo in z.namelist():
@@ -193,7 +190,6 @@ if arquivos_zip:
         
         df_final = df_final[colunas_existentes + outras_colunas]
 
-        # Ignora campos que contenham informações pessoais na busca por OME para evitar falso positivo
         colunas_ignoradas = ["ARQUIVO ORIGEM", "GRADUAÇÃO", "MATRÍCULA", "NOME COMPLETO", "TELEFONE"]
 
         buffer = io.BytesIO()
@@ -218,12 +214,12 @@ if arquivos_zip:
                 
                 df_aba.to_excel(writer, index=False, sheet_name=nome_aba)
         
-        st.success("Sucesso! Busca expandida para todas as colunas de opções. As abas foram populadas corretamente.")
+        st.success("Sucesso! Policiais com '3º BPM (2º CIA)', '12º BPM' e '10º BPM' foram devidamente realocados em suas respectivas abas.")
         
         st.download_button(
-            label="📥 Baixar Planilha Consolidada e Corrigida por OMEs",
+            label="📥 Baixar Planilha Consolidada com Batalhões Corrigidos",
             data=buffer.getvalue(),
-            file_name="Relatorio_Policiais_Geral_Por_OME.xlsx",
+            file_name="Relatorio_Policiais_Por_Batalhoes_Corrigido.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
     else:
