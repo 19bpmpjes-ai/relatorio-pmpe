@@ -53,7 +53,7 @@ def padronizar_e_organizar_colunas(df):
         elif any(k in c_limpo for k in ["DISP", "TURNO", "DIAS", "HORA", "HORARIO", "DISPONIBILIDADE"]):
             novas_colunas[col] = "DISPONIBILIDADE / TURNO"
         # Coluna 9: OME / Opções
-        elif any(k in c_limpo for k in ["OPC", "OME", "DESTINO", "UNIDADE", "LOTACAO", "PREENCHER"]):
+        elif any(k in c_limpo for k in ["OPC", "OME", "DESTINO", "UNIDADE", "LOTACAO", "PREENCHER", "BATALHAO"]):
             novas_colunas[col] = "OME / OPÇÕES"
             
     df = df.rename(columns=novas_colunas)
@@ -72,7 +72,8 @@ def padronizar_e_organizar_colunas(df):
 
 def extrair_omes(texto_ome):
     """
-    Analisa a célula de OME/OPÇÕES e padroniza as abas de destino.
+    Analisa EXCLUSIVAMENTE a célula de OME/OPÇÕES para extrair apenas
+    unidades/batalhões válidos, evitando criar abas com nomes de pessoas.
     """
     if pd.isna(texto_ome):
         return ["SEM OME"]
@@ -140,16 +141,13 @@ def extrair_omes(texto_ome):
                     omes_encontradas.add(f"{num}º BPM")
                     continue
 
-            nome_limpo = re.sub(r'[\\/*?:\[\]]', '', texto).strip()
-            if nome_limpo and len(nome_limpo) > 2:
-                omes_encontradas.add(nome_limpo[:31])
-
+    # Se não identificar nenhum batalhão/unidade conhecido, envia para SEM OME
     return list(omes_encontradas) if omes_encontradas else ["SEM OME"]
 
 if arquivos_zip:
     tabelas_encontradas = []
     
-    with st.spinner("Unificando colunas no padrão definido..."):
+    with st.spinner("Unificando colunas e gerando abas por OME..."):
         for arquivo_zip in arquivos_zip:
             with zipfile.ZipFile(arquivo_zip, 'r') as z:
                 for nome_arquivo in z.namelist():
@@ -178,7 +176,6 @@ if arquivos_zip:
                                         df = desduplicar_colunas(df)
                                         df = padronizar_e_organizar_colunas(df)
                                         
-                                        # Coluna 1: Arquivo Origem
                                         df.insert(0, 'ARQUIVO ORIGEM', os.path.basename(nome_arquivo))
                                         tabelas_encontradas.append(df)
                                         break
@@ -191,7 +188,6 @@ if arquivos_zip:
 
         df_final = padronizar_e_organizar_colunas(df_final)
 
-        # Ordem estrita das 9 colunas solicitadas
         ordem_estrita = [
             "ARQUIVO ORIGEM",            # Coluna 1
             "GRADUAÇÃO",                 # Coluna 2
@@ -207,7 +203,6 @@ if arquivos_zip:
         colunas_existentes = [c for c in ordem_estrita if c in df_final.columns]
         outras_colunas = [c for c in df_final.columns if c not in ordem_estrita]
         
-        # Monta o DataFrame final colocando as 9 colunas em ordem e depois as sobras
         df_final = df_final[colunas_existentes + outras_colunas]
 
         buffer = io.BytesIO()
@@ -215,11 +210,10 @@ if arquivos_zip:
             
             mecanismo_abas = {}
             
-            col_ome_ref = "OME / OPÇÕES" if "OME / OPÇÕES" in df_final.columns else df_final.columns[0]
-            cols_ome_busca = [c for c in df_final.columns if "OME / OPÇÕES" in c or "OPC" in c or "OME" in c]
-            
             for idx, row in df_final.iterrows():
-                texto_linha_opcoes = " ".join([str(row[c]) for c in cols_ome_busca if pd.notna(row[c])])
+                # Busca apenas na coluna específica OME / OPÇÕES
+                texto_linha_opcoes = str(row["OME / OPÇÕES"]) if "OME / OPÇÕES" in df_final.columns and pd.notna(row["OME / OPÇÕES"]) else ""
+                
                 lista_omes = extrair_omes(texto_linha_opcoes)
                 
                 for ome in lista_omes:
@@ -236,12 +230,12 @@ if arquivos_zip:
                 
                 df_aba.to_excel(writer, index=False, sheet_name=nome_aba)
         
-        st.success("Sucesso! Colunas ordenadas estritamente de 1 a 9 e dados padronizados.")
+        st.success("Sucesso! Abas corrigidas para conter apenas as OMEs/Batalhões e colunas totalmente alinhadas.")
         
         st.download_button(
-            label="📥 Baixar Planilha Consolidada por Padrão de Colunas",
+            label="📥 Baixar Planilha Consolidada e Corrigida",
             data=buffer.getvalue(),
-            file_name="Relatorio_Policiais_Padronizado.xlsx",
+            file_name="Relatorio_Policiais_Por_OME_Corrigido.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
     else:
