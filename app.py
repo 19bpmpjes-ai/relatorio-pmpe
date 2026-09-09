@@ -12,6 +12,17 @@ st.write("Envie um ou **vários arquivos .zip** para consolidar e organizar os p
 
 arquivos_zip = st.file_uploader("Arraste e solte os arquivos .ZIP aqui", type=["zip"], accept_multiple_files=True)
 
+def desduplicar_colunas(df):
+    """
+    Garante que não existam nomes de colunas duplicados na mesma tabela,
+    evitando o erro InvalidIndexError durante o pd.concat.
+    """
+    cols = pd.Series(df.columns)
+    for dup in cols[cols.duplicated()].unique():
+        cols[cols == dup] = [f"{dup}_{i}" if i != 0 else str(dup) for i in range(sum(cols == dup))]
+    df.columns = cols
+    return df
+
 def padronizar_colunas(df):
     """
     Mapeia e renomeia colunas com nomes parecidos para nomes padronizados,
@@ -148,11 +159,17 @@ if arquivos_zip:
                                             df.columns = df.iloc[0]
                                             df = df[1:].reset_index(drop=True)
                                         
-                                        df = df.loc[:, ~df.columns.duplicated()].copy()
+                                        # Remove valores nulos do nome das colunas
                                         df.columns = [str(c).strip() if pd.notna(c) else f"Coluna_{i}" for i, c in enumerate(df.columns)]
                                         
-                                        # Padroniza nomes de colunas antes de concatenar
+                                        # Trata e remove duplicações de colunas na própria tabela
+                                        df = desduplicar_colunas(df)
+                                        
+                                        # Padroniza nomes das colunas
                                         df = padronizar_colunas(df)
+                                        
+                                        # Trata duplicações geradas após a padronização
+                                        df = desduplicar_colunas(df)
                                         
                                         df.insert(0, 'Arquivo_Origem', os.path.basename(nome_arquivo))
                                         tabelas_encontradas.append(df)
@@ -161,11 +178,9 @@ if arquivos_zip:
                                 continue
 
     if tabelas_encontradas:
-        df_final = pd.concat(tabelas_encontradas, ignore_index=True)
+        # Garante a união segura das tabelas
+        df_final = pd.concat(tabelas_encontradas, ignore_index=True, axis=0)
         df_final.dropna(how='all', inplace=True)
-        
-        # Consolida colunas repetidas após concatenação
-        df_final = df_final.loc[:, ~df_final.columns.duplicated()].copy()
 
         # Reorganizar a ordem visual das colunas padrão
         ordem_desejada = ["Arquivo_Origem", "GRADUAÇÃO", "MATRÍCULA", "NOME COMPLETO", "TELEFONE", "OME_SOLICITADA", "TURNO", "DISPONIBILIDADE", "MOTORISTA", "MODALIDADE / FUNÇÃO"]
@@ -177,10 +192,13 @@ if arquivos_zip:
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             
             mecanismo_abas = {}
-            coluna_ome = "OME_SOLICITADA" if "OME_SOLICITADA" in df_final.columns else df_final.columns[1]
+            
+            # Identifica todas as colunas que possuem OME_SOLICITADA ou variação
+            cols_ome = [c for c in df_final.columns if "OME_SOLICITADA" in c or "OPÇ" in c or "OPC" in c]
             
             for idx, row in df_final.iterrows():
-                texto_linha_opcoes = str(row[coluna_ome]) if pd.notna(row[coluna_ome]) else ""
+                # Concatena os valores de colunas de opções presentes no registro
+                texto_linha_opcoes = " ".join([str(row[c]) for c in cols_ome if pd.notna(row[c])])
                 lista_omes = extrair_omes(texto_linha_opcoes)
                 
                 for ome in lista_omes:
@@ -197,7 +215,7 @@ if arquivos_zip:
                 
                 df_aba.to_excel(writer, index=False, sheet_name=nome_aba)
         
-        st.success("Sucesso! Colunas alinhadas e dados organizados por aba com precisão.")
+        st.success("Sucesso! Colunas unificadas, alinhadas e erro corrigido.")
         
         st.download_button(
             label="📥 Baixar Planilha Consolidada e Organizada",
