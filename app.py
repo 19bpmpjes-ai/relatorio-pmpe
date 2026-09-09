@@ -226,7 +226,7 @@ if arquivos_zip:
                 
                 df_aba.to_excel(writer, index=False, sheet_name=nome_aba)
         
-        st.success("Sucesso! Matrículas limpas (apenas números) e policiais organizados por OME.")
+        st.success("Arquivo gerado com sucesso! Policiais alocados por OME e matrículas padronizadas.")
         
         st.download_button(
             label="📥 Baixar Planilha Consolidada Corrigida",
