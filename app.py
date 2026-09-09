@@ -8,9 +8,41 @@ import re
 st.set_page_config(page_title="Processador de Relatórios PMPE", layout="wide")
 
 st.title("📊 Processador de Relatórios SEI por OME")
-st.write("Envie um ou **vários arquivos .zip** para consolidar e distribuir os policiais nas abas das OMEs desejadas.")
+st.write("Envie um ou **vários arquivos .zip** para consolidar e organizar os policiais em colunas alinhadas por OME.")
 
 arquivos_zip = st.file_uploader("Arraste e solte os arquivos .ZIP aqui", type=["zip"], accept_multiple_files=True)
+
+def padronizar_colunas(df):
+    """
+    Mapeia e renomeia colunas com nomes parecidos para nomes padronizados,
+    garantindo alinhamento perfeito na planilha.
+    """
+    mapa_colunas = {}
+    
+    for col in df.columns:
+        c_upper = str(col).upper().strip()
+        
+        if any(k in c_upper for k in ["GRAD", "POSTO"]):
+            mapa_colunas[col] = "GRADUAÇÃO"
+        elif any(k in c_upper for k in ["MATR", "MATÍ"]):
+            mapa_colunas[col] = "MATRÍCULA"
+        elif "NOME" in c_upper:
+            mapa_colunas[col] = "NOME COMPLETO"
+        elif any(k in c_upper for k in ["TEL", "FONE", "CELULAR"]):
+            mapa_colunas[col] = "TELEFONE"
+        elif any(k in c_upper for k in ["DISP", "DIAS"]):
+            mapa_colunas[col] = "DISPONIBILIDADE"
+        elif any(k in c_upper for k in ["TURNO", "HORÁRIO", "HORARIO"]):
+            mapa_colunas[col] = "TURNO"
+        elif any(k in c_upper for k in ["MODALID", "FUNÇÃO", "FUNCAO"]):
+            mapa_colunas[col] = "MODALIDADE / FUNÇÃO"
+        elif any(k in c_upper for k in ["MOTORISTA", "CNH"]):
+            mapa_colunas[col] = "MOTORISTA"
+        elif any(k in c_upper for k in ["OPÇ", "OPC", "OME", "DESTINO", "UNIDADE"]):
+            mapa_colunas[col] = "OME_SOLICITADA"
+            
+    df = df.rename(columns=mapa_colunas)
+    return df
 
 def extrair_omes(texto_ome):
     """
@@ -24,7 +56,6 @@ def extrair_omes(texto_ome):
     if not texto_original or texto_original in ["NAN", "NONE"]:
         return ["SEM OME"]
 
-    # Quebra o texto se houver múltiplas OMEs por barras, hifens, vírgulas, quebras de linha ou 'E'
     linhas = re.split(r'[\n\r,;/]|\s+E\s+|\s*-\s*', texto_original)
     omes_encontradas = set()
 
@@ -33,16 +64,12 @@ def extrair_omes(texto_ome):
         if not texto:
             continue
 
-        # TJPE / Joana Bezerra / Tribunal de Justiça
         if any(k in texto for k in ["TJPE", "TJ-PE", "JOANA BEZERRA", "TRIBUNAL DE JUSTIÇA", "TRIBUNAL DE JUSTICA"]):
             omes_encontradas.add("TJPE")
-        # TCE / Tribunal de Contas
         elif "TRIBUNAL DE CONTAS" in texto or "TCE" in texto:
             omes_encontradas.add("TCE")
-        # Maria da Penha
         elif any(k in texto for k in ["MARIA DA PENHA", "PPMP", "PATRULHA MARIA DA PENHA"]):
             omes_encontradas.add("MARIA DA PENHA")
-        # DASDH / Patrulha do Bairro / Patrulha Escolar / BGPESC / Sede DASDH
         elif any(k in texto for k in ["DASDH", "PATRULHA DO BAIRRO", "PATRULHA ESCOLAR", "PATRULHA ESCOLA", "ESCOLAR", "BGPESC", "SEDE DA DASDH", "DIRETORIA DE ASSISTENCIA"]):
             omes_encontradas.add("DASDH - PATRULHA DO BAIRRO")
         elif "BOPE" in texto:
@@ -66,25 +93,21 @@ def extrair_omes(texto_ome):
         elif "BPTUR" in texto or "TURÍSTICO" in texto or "TURISTICO" in texto:
             omes_encontradas.add("BPTur")
         else:
-            # Captura de BIEsp
             biesp_match = re.search(r'(\d+)\s*º?\s*BIESP', texto)
             if biesp_match:
                 omes_encontradas.add(f"{biesp_match.group(1)}º BIEsp")
                 continue
 
-            # Captura de CIPM
             cipm_match = re.search(r'(\d+)\s*ª?\s*CIPM', texto)
             if cipm_match:
                 omes_encontradas.add(f"{cipm_match.group(1)}ª CIPM")
                 continue
 
-            # Captura de BPM
             bpm_match = re.search(r'(\d+)\s*º?\s*BPM', texto)
             if bpm_match:
                 omes_encontradas.add(f"{bpm_match.group(1)}º BPM")
                 continue
 
-            # Captura de número isolado de 1 a 29 (Ex: "1BPM" ou "19BPM")
             num_match = re.search(r'\b(\d{1,2})\s*º?\s*(BPM)?\b', texto)
             if num_match:
                 num = int(num_match.group(1))
@@ -92,7 +115,6 @@ def extrair_omes(texto_ome):
                     omes_encontradas.add(f"{num}º BPM")
                     continue
 
-            # Limpeza genérica para outros casos
             nome_limpo = re.sub(r'[\\/*?:\[\]]', '', texto).strip()
             if nome_limpo and len(nome_limpo) > 2:
                 omes_encontradas.add(nome_limpo[:31])
@@ -102,7 +124,7 @@ def extrair_omes(texto_ome):
 if arquivos_zip:
     tabelas_encontradas = []
     
-    with st.spinner("Processando e consolidando tabelas..."):
+    with st.spinner("Lendo e organizando colunas dos relatórios..."):
         for arquivo_zip in arquivos_zip:
             with zipfile.ZipFile(arquivo_zip, 'r') as z:
                 for nome_arquivo in z.namelist():
@@ -129,7 +151,9 @@ if arquivos_zip:
                                         df = df.loc[:, ~df.columns.duplicated()].copy()
                                         df.columns = [str(c).strip() if pd.notna(c) else f"Coluna_{i}" for i, c in enumerate(df.columns)]
                                         
-                                        # Adiciona apenas o Arquivo_Origem (sem ZIP_Origem)
+                                        # Padroniza nomes de colunas antes de concatenar
+                                        df = padronizar_colunas(df)
+                                        
                                         df.insert(0, 'Arquivo_Origem', os.path.basename(nome_arquivo))
                                         tabelas_encontradas.append(df)
                                         break
@@ -140,22 +164,23 @@ if arquivos_zip:
         df_final = pd.concat(tabelas_encontradas, ignore_index=True)
         df_final.dropna(how='all', inplace=True)
         
-        # Identificação de todas as colunas que podem conter informações de OME/Opções
-        colunas_opcao = []
-        for col in df_final.columns:
-            col_upper = str(col).upper()
-            if any(k in col_upper for k in ["OPÇ", "OPC", "OME", "DESTINO", "UNIDADE", "LOTAÇÃO", "LOTACAO"]) and "NOME" not in col_upper:
-                colunas_opcao.append(col)
+        # Consolida colunas repetidas após concatenação
+        df_final = df_final.loc[:, ~df_final.columns.duplicated()].copy()
+
+        # Reorganizar a ordem visual das colunas padrão
+        ordem_desejada = ["Arquivo_Origem", "GRADUAÇÃO", "MATRÍCULA", "NOME COMPLETO", "TELEFONE", "OME_SOLICITADA", "TURNO", "DISPONIBILIDADE", "MOTORISTA", "MODALIDADE / FUNÇÃO"]
+        colunas_existentes = [c for c in ordem_desejada if c in df_final.columns]
+        outras_colunas = [c for c in df_final.columns if c not in colunas_existentes]
+        df_final = df_final[colunas_existentes + outras_colunas]
 
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             
             mecanismo_abas = {}
+            coluna_ome = "OME_SOLICITADA" if "OME_SOLICITADA" in df_final.columns else df_final.columns[1]
             
             for idx, row in df_final.iterrows():
-                # Concatena o conteúdo de todas as colunas relativas a Opções/OME encontradas na linha
-                texto_linha_opcoes = " ".join([str(row[c]) for c in colunas_opcao if pd.notna(row[c])])
-                
+                texto_linha_opcoes = str(row[coluna_ome]) if pd.notna(row[coluna_ome]) else ""
                 lista_omes = extrair_omes(texto_linha_opcoes)
                 
                 for ome in lista_omes:
@@ -164,7 +189,6 @@ if arquivos_zip:
                         mecanismo_abas[chave_ome] = []
                     mecanismo_abas[chave_ome].append(row)
             
-            # Gerar abas sem duplicidades
             for nome_ome, lista_rows in mecanismo_abas.items():
                 df_aba = pd.DataFrame(lista_rows)
                 nome_aba = nome_ome[:31]
@@ -173,12 +197,12 @@ if arquivos_zip:
                 
                 df_aba.to_excel(writer, index=False, sheet_name=nome_aba)
         
-        st.success("Sucesso! Planilha processada e policiais devidamente distribuídos em suas respectivas OMEs.")
+        st.success("Sucesso! Colunas alinhadas e dados organizados por aba com precisão.")
         
         st.download_button(
-            label="📥 Baixar Planilha Consolidada por OMEs",
+            label="📥 Baixar Planilha Consolidada e Organizada",
             data=buffer.getvalue(),
-            file_name="Relatorio_Policiais_Por_OME.xlsx",
+            file_name="Relatorio_Policiais_Por_OME_Organizado.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
     else:
