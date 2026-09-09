@@ -72,8 +72,7 @@ def padronizar_e_organizar_colunas(df):
 
 def extrair_omes(texto_ome):
     """
-    Analisa EXCLUSIVAMENTE a célula de OME/OPÇÕES para extrair apenas
-    unidades/batalhões válidos, evitando criar abas com nomes de pessoas.
+    Analisa a célula de OME/OPÇÕES para extrair apenas unidades e batalhões válidos.
     """
     if pd.isna(texto_ome):
         return ["SEM OME"]
@@ -82,72 +81,63 @@ def extrair_omes(texto_ome):
     if not texto_original or texto_original in ["NAN", "NONE"]:
         return ["SEM OME"]
 
-    linhas = re.split(r'[\n\r,;/]|\s+E\s+|\s*-\s*', texto_original)
     omes_encontradas = set()
 
-    for linha in linhas:
-        texto = linha.strip()
-        if not texto:
-            continue
+    # Mapeamento abrangente de OMEs e palavras-chave
+    if any(k in texto_original for k in ["TJPE", "TJ-PE", "JOANA BEZERRA", "TRIBUNAL DE JUSTIÇA", "TRIBUNAL DE JUSTICA"]):
+        omes_encontradas.add("TJPE")
+    if "TRIBUNAL DE CONTAS" in texto_original or "TCE" in texto_original:
+        omes_encontradas.add("TCE")
+    if any(k in texto_original for k in ["MARIA DA PENHA", "PPMP", "PATRULHA MARIA DA PENHA"]):
+        omes_encontradas.add("MARIA DA PENHA")
+    if any(k in texto_original for k in ["DASDH", "PATRULHA ESCOLAR", "PATRULHA ESCOLA", "ESCOLAR", "BGPESC", "SEDE DA DASDH", "DIRETORIA DE ASSISTENCIA"]):
+        omes_encontradas.add("DASDH - PATRULHA ESCOLAR")
+    if "BOPE" in texto_original:
+        omes_encontradas.add("BOPE")
+    if "CHOQUE" in texto_original or "BPCHOQUE" in texto_original:
+        omes_encontradas.add("BPChoque")
+    if "RADIOPATRULHA" in texto_original or "BPRP" in texto_original:
+        omes_encontradas.add("BPRP")
+    if "RPMON" in texto_original or "MONTADA" in texto_original:
+        omes_encontradas.add("RPMon")
+    if "BPTRAN" in texto_original or "TRÂNSITO" in texto_original or "TRANSITO" in texto_original:
+        omes_encontradas.add("1º BPTran")
+    if "BPRV" in texto_original or "RODOVIÁRIA" in texto_original or "RODOVIARIA" in texto_original:
+        omes_encontradas.add("BPRv")
+    if "BEPI" in texto_original or "INTERIOR" in texto_original:
+        omes_encontradas.add("BEPI")
+    if "BPGD" in texto_original or "GUARDA" in texto_original:
+        omes_encontradas.add("BPGd")
+    if "BPMA" in texto_original or "MEIO AMBIENTE" in texto_original:
+        omes_encontradas.add("BPMA")
+    if "BPTUR" in texto_original or "TURÍSTICO" in texto_original or "TURISTICO" in texto_original:
+        omes_encontradas.add("BPTur")
 
-        if any(k in texto for k in ["TJPE", "TJ-PE", "JOANA BEZERRA", "TRIBUNAL DE JUSTIÇA", "TRIBUNAL DE JUSTICA"]):
-            omes_encontradas.add("TJPE")
-        elif "TRIBUNAL DE CONTAS" in texto or "TCE" in texto:
-            omes_encontradas.add("TCE")
-        elif any(k in texto for k in ["MARIA DA PENHA", "PPMP", "PATRULHA MARIA DA PENHA"]):
-            omes_encontradas.add("MARIA DA PENHA")
-        elif any(k in texto for k in ["DASDH", "PATRULHA DO BAIRRO", "PATRULHA ESCOLAR", "PATRULHA ESCOLA", "ESCOLAR", "BGPESC", "SEDE DA DASDH", "DIRETORIA DE ASSISTENCIA"]):
-            omes_encontradas.add("DASDH - PATRULHA DO BAIRRO")
-        elif "BOPE" in texto:
-            omes_encontradas.add("BOPE")
-        elif "CHOQUE" in texto or "BPCHOQUE" in texto:
-            omes_encontradas.add("BPChoque")
-        elif "RADIOPATRULHA" in texto or "BPRP" in texto:
-            omes_encontradas.add("BPRP")
-        elif "RPMON" in texto or "MONTADA" in texto:
-            omes_encontradas.add("RPMon")
-        elif "BPTRAN" in texto or "TRÂNSITO" in texto or "TRANSITO" in texto:
-            omes_encontradas.add("1º BPTran")
-        elif "BPRV" in texto or "RODOVIÁRIA" in texto or "RODOVIARIA" in texto:
-            omes_encontradas.add("BPRv")
-        elif "BEPI" in texto or "INTERIOR" in texto:
-            omes_encontradas.add("BEPI")
-        elif "BPGD" in texto or "GUARDA" in texto:
-            omes_encontradas.add("BPGd")
-        elif "BPMA" in texto or "MEIO AMBIENTE" in texto:
-            omes_encontradas.add("BPMA")
-        elif "BPTUR" in texto or "TURÍSTICO" in texto or "TURISTICO" in texto:
-            omes_encontradas.add("BPTur")
-        else:
-            biesp_match = re.search(r'(\d+)\s*º?\s*BIESP', texto)
-            if biesp_match:
-                omes_encontradas.add(f"{biesp_match.group(1)}º BIEsp")
-                continue
+    # Identificação por Regex de Batalhões e Companhias
+    biesp_matches = re.findall(r'(\d+)\s*º?\s*BIESP', texto_original)
+    for num in biesp_matches:
+        omes_encontradas.add(f"{num}º BIEsp")
 
-            cipm_match = re.search(r'(\d+)\s*ª?\s*CIPM', texto)
-            if cipm_match:
-                omes_encontradas.add(f"{cipm_match.group(1)}ª CIPM")
-                continue
+    cipm_matches = re.findall(r'(\d+)\s*ª?\s*CIPM', texto_original)
+    for num in cipm_matches:
+        omes_encontradas.add(f"{num}ª CIPM")
 
-            bpm_match = re.search(r'(\d+)\s*º?\s*BPM', texto)
-            if bpm_match:
-                omes_encontradas.add(f"{bpm_match.group(1)}º BPM")
-                continue
+    bpm_matches = re.findall(r'(\d+)\s*º?\s*BPM', texto_original)
+    for num in bpm_matches:
+        omes_encontradas.add(f"{num}º BPM")
 
-            num_match = re.search(r'\b(\d{1,2})\s*º?\s*(BPM)?\b', texto)
-            if num_match:
-                num = int(num_match.group(1))
-                if 1 <= num <= 29:
-                    omes_encontradas.add(f"{num}º BPM")
-                    continue
+    # Caso informe apenas o número da unidade (ex: 1º, 5º, 19º)
+    num_matches = re.findall(r'\b(\d{1,2})\s*º?\s*(BPM)?\b', texto_original)
+    for num, bpm in num_matches:
+        if num and 1 <= int(num) <= 29 and not omes_encontradas:
+            omes_encontradas.add(f"{num}º BPM")
 
-    # Se não identificar nenhum batalhão/unidade conhecido, envia para SEM OME
     return list(omes_encontradas) if omes_encontradas else ["SEM OME"]
 
 if arquivos_zip:
     tabelas_encontradas = []
     
-    with st.spinner("Unificando colunas e gerando abas por OME..."):
+    with st.spinner("Unificando colunas e separando por OME/Batalhão..."):
         for arquivo_zip in arquivos_zip:
             with zipfile.ZipFile(arquivo_zip, 'r') as z:
                 for nome_arquivo in z.namelist():
@@ -210,9 +200,12 @@ if arquivos_zip:
             
             mecanismo_abas = {}
             
+            # Seleciona todas as colunas que podem conter informações de OME/Opções
+            cols_ome_busca = [c for c in df_final.columns if "OME" in c or "OPC" in c or "UNIDADE" in c or "DESTINO" in c]
+            
             for idx, row in df_final.iterrows():
-                # Busca apenas na coluna específica OME / OPÇÕES
-                texto_linha_opcoes = str(row["OME / OPÇÕES"]) if "OME / OPÇÕES" in df_final.columns and pd.notna(row["OME / OPÇÕES"]) else ""
+                # Concatena o texto presente nas colunas referentes a OME
+                texto_linha_opcoes = " ".join([str(row[c]) for c in cols_ome_busca if pd.notna(row[c])])
                 
                 lista_omes = extrair_omes(texto_linha_opcoes)
                 
@@ -230,12 +223,12 @@ if arquivos_zip:
                 
                 df_aba.to_excel(writer, index=False, sheet_name=nome_aba)
         
-        st.success("Sucesso! Abas corrigidas para conter apenas as OMEs/Batalhões e colunas totalmente alinhadas.")
+        st.success("Sucesso! Nome 'DASDH - PATRULHA ESCOLAR' atualizado e extração das OMEs aprimorada.")
         
         st.download_button(
             label="📥 Baixar Planilha Consolidada e Corrigida",
             data=buffer.getvalue(),
-            file_name="Relatorio_Policiais_Por_OME_Corrigido.xlsx",
+            file_name="Relatorio_Policiais_Por_OME_Atualizado.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
     else:
