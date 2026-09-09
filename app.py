@@ -24,8 +24,8 @@ def extrair_omes(texto_ome):
     if not texto_original or texto_original in ["NAN", "NONE"]:
         return ["SEM OME"]
 
-    # Quebra o texto se houver múltiplas OMEs
-    linhas = re.split(r'[\n\r,;/]|(?<=\d)\s+E\s+|(?<=\w)\s+E\s+(?=\d|\w)', texto_original)
+    # Quebra o texto se houver múltiplas OMEs por barras, hifens, vírgulas, quebras de linha ou 'E'
+    linhas = re.split(r'[\n\r,;/]|\s+E\s+|\s*-\s*', texto_original)
     omes_encontradas = set()
 
     for linha in linhas:
@@ -42,8 +42,8 @@ def extrair_omes(texto_ome):
         # Maria da Penha
         elif any(k in texto for k in ["MARIA DA PENHA", "PPMP", "PATRULHA MARIA DA PENHA"]):
             omes_encontradas.add("MARIA DA PENHA")
-        # DASDH / Patrulha do Bairro / Patrulha Escolar / BGPESC
-        elif any(k in texto for k in ["DASDH", "PATRULHA DO BAIRRO", "PATRULHA ESCOLAR", "ESCOLAR", "BGPESC", "DIRETORIA DE ASSISTENCIA"]):
+        # DASDH / Patrulha do Bairro / Patrulha Escolar / BGPESC / Sede DASDH
+        elif any(k in texto for k in ["DASDH", "PATRULHA DO BAIRRO", "PATRULHA ESCOLAR", "PATRULHA ESCOLA", "ESCOLAR", "BGPESC", "SEDE DA DASDH", "DIRETORIA DE ASSISTENCIA"]):
             omes_encontradas.add("DASDH - PATRULHA DO BAIRRO")
         elif "BOPE" in texto:
             omes_encontradas.add("BOPE")
@@ -84,17 +84,17 @@ def extrair_omes(texto_ome):
                 omes_encontradas.add(f"{bpm_match.group(1)}º BPM")
                 continue
 
-            # Captura de número isolado de 1 a 29
-            num_match = re.search(r'\b(\d{1,2})\s*º?\b', texto)
+            # Captura de número isolado de 1 a 29 (Ex: "1BPM" ou "19BPM")
+            num_match = re.search(r'\b(\d{1,2})\s*º?\s*(BPM)?\b', texto)
             if num_match:
                 num = int(num_match.group(1))
                 if 1 <= num <= 29:
                     omes_encontradas.add(f"{num}º BPM")
                     continue
 
-            # Limpeza genérica caso não caia nas regras anteriores
+            # Limpeza genérica para outros casos
             nome_limpo = re.sub(r'[\\/*?:\[\]]', '', texto).strip()
-            if nome_limpo:
+            if nome_limpo and len(nome_limpo) > 2:
                 omes_encontradas.add(nome_limpo[:31])
 
     return list(omes_encontradas) if omes_encontradas else ["SEM OME"]
@@ -129,8 +129,8 @@ if arquivos_zip:
                                         df = df.loc[:, ~df.columns.duplicated()].copy()
                                         df.columns = [str(c).strip() if pd.notna(c) else f"Coluna_{i}" for i, c in enumerate(df.columns)]
                                         
+                                        # Adiciona apenas o Arquivo_Origem (sem ZIP_Origem)
                                         df.insert(0, 'Arquivo_Origem', os.path.basename(nome_arquivo))
-                                        df.insert(0, 'ZIP_Origem', arquivo_zip.name)
                                         tabelas_encontradas.append(df)
                                         break
                             except Exception:
@@ -140,47 +140,40 @@ if arquivos_zip:
         df_final = pd.concat(tabelas_encontradas, ignore_index=True)
         df_final.dropna(how='all', inplace=True)
         
-        # Localização da coluna de OME / Opções de Destino
-        coluna_ome = None
-        
+        # Identificação de todas as colunas que podem conter informações de OME/Opções
+        colunas_opcao = []
         for col in df_final.columns:
             col_upper = str(col).upper()
-            if any(k in col_upper for k in ["OME", "DESTINO", "OPÇÃO", "OPCAO", "OPÇÕES", "OPCOES"]) and "NOME" not in col_upper:
-                coluna_ome = col
-                break
-                
-        if not coluna_ome:
-            for col in df_final.columns:
-                col_upper = str(col).upper()
-                if any(k in col_upper for k in ["UNIDADE", "LOTAÇÃO", "LOTACAO"]) and "NOME" not in col_upper:
-                    coluna_ome = col
-                    break
+            if any(k in col_upper for k in ["OPÇ", "OPC", "OME", "DESTINO", "UNIDADE", "LOTAÇÃO", "LOTACAO"]) and "NOME" not in col_upper:
+                colunas_opcao.append(col)
 
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             
-            if coluna_ome:
-                mecanismo_abas = {}
+            mecanismo_abas = {}
+            
+            for idx, row in df_final.iterrows():
+                # Concatena o conteúdo de todas as colunas relativas a Opções/OME encontradas na linha
+                texto_linha_opcoes = " ".join([str(row[c]) for c in colunas_opcao if pd.notna(row[c])])
                 
-                for idx, row in df_final.iterrows():
-                    lista_omes = extrair_omes(row[coluna_ome])
-                    for ome in lista_omes:
-                        chave_ome = str(ome).strip().upper()
-                        if chave_ome not in mecanismo_abas:
-                            mecanismo_abas[chave_ome] = []
-                        mecanismo_abas[chave_ome].append(row)
+                lista_omes = extrair_omes(texto_linha_opcoes)
                 
-                for nome_ome, lista_rows in mecanismo_abas.items():
-                    df_aba = pd.DataFrame(lista_rows)
-                    nome_aba = nome_ome[:31]
-                    if not nome_aba:
-                        nome_aba = "SEM OME"
-                    
-                    df_aba.to_excel(writer, index=False, sheet_name=nome_aba)
-            else:
-                df_final.to_excel(writer, index=False, sheet_name='CADASTROS')
+                for ome in lista_omes:
+                    chave_ome = str(ome).strip().upper()
+                    if chave_ome not in mecanismo_abas:
+                        mecanismo_abas[chave_ome] = []
+                    mecanismo_abas[chave_ome].append(row)
+            
+            # Gerar abas sem duplicidades
+            for nome_ome, lista_rows in mecanismo_abas.items():
+                df_aba = pd.DataFrame(lista_rows)
+                nome_aba = nome_ome[:31]
+                if not nome_aba:
+                    nome_aba = "SEM OME"
+                
+                df_aba.to_excel(writer, index=False, sheet_name=nome_aba)
         
-        st.success("Sucesso! OMEs, Patrulha Escolar e Maria da Penha categorizados com precisão.")
+        st.success("Sucesso! Planilha processada e policiais devidamente distribuídos em suas respectivas OMEs.")
         
         st.download_button(
             label="📥 Baixar Planilha Consolidada por OMEs",
