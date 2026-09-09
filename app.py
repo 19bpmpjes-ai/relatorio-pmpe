@@ -61,13 +61,20 @@ def padronizar_e_organizar_colunas(df):
 
 def extrair_omes_da_linha(row):
     """
-    Analisa a linha com regras de extração robustas para BPM, CIPM, CPM e opções múltiplas.
+    Busca robusta de OMEs na linha, com suporte a siglas grudadas (ex: 10ºBPM)
+    e prioridade total para a coluna OME / OPÇÕES.
     """
     texto_linha = []
     
-    # 1. Coleta o texto das colunas relevantes da linha
+    # Prioridade para a coluna 'OME / OPÇÕES' se ela existir
+    if "OME / OPÇÕES" in row and pd.notna(row["OME / OPÇÕES"]):
+        val_ome = str(row["OME / OPÇÕES"]).strip().upper()
+        if val_ome and val_ome not in ["NAN", "NONE", "****"]:
+            texto_linha.append(val_ome)
+
+    # Coleta demais colunas (exceto dados pessoais)
     for col, val in row.items():
-        if col not in ["ARQUIVO ORIGEM", "GRADUAÇÃO", "MATRÍCULA", "NOME COMPLETO", "TELEFONE"] and pd.notna(val):
+        if col not in ["ARQUIVO ORIGEM", "GRADUAÇÃO", "MATRÍCULA", "NOME COMPLETO", "TELEFONE", "OME / OPÇÕES"] and pd.notna(val):
             val_str = str(val).strip().upper()
             if val_str and val_str not in ["NAN", "NONE", "****"]:
                 texto_linha.append(val_str)
@@ -78,7 +85,7 @@ def extrair_omes_da_linha(row):
 
     omes_encontradas = set()
 
-    # 2. Mapeamento de OMEs Especializadas
+    # 1. Unidades Especializadas
     if any(k in texto_original for k in ["TJPE", "TJ-PE", "JOANA BEZERRA", "TRIBUNAL DE JUSTIÇA", "TRIBUNAL DE JUSTICA"]):
         omes_encontradas.add("TJPE")
     if "TRIBUNAL DE CONTAS" in texto_original or "TCE" in texto_original:
@@ -108,20 +115,22 @@ def extrair_omes_da_linha(row):
     if "BPTUR" in texto_original or "TURÍSTICO" in texto_original or "TURISTICO" in texto_original:
         omes_encontradas.add("BPTur")
 
-    # 3. Busca por Batalhões (Ex: 3º BPM, 12º BPM, 10º BPM, 23º BPM)
+    # 2. Busca por BPM (Aceita: 3º BPM, 3ºBPM, 3 BPM, 3BPM)
     bpm_matches = re.findall(r'(\d+)\s*[º°ª]?\s*BPM', texto_original)
     for num in bpm_matches:
         omes_encontradas.add(f"{num}º BPM")
 
+    # 3. Busca por BIESP (Aceita: 1º BIESP, 1ºBIESP)
     biesp_matches = re.findall(r'(\d+)\s*[º°ª]?\s*BIESP', texto_original)
     for num in biesp_matches:
         omes_encontradas.add(f"{num}º BIEsp")
 
+    # 4. Busca por CIPM (Aceita: 10ª CIPM, 10ªCIPM)
     cipm_matches = re.findall(r'(\d+)\s*[º°ª]?\s*CIPM', texto_original)
     for num in cipm_matches:
         omes_encontradas.add(f"{num}ª CIPM")
 
-    # 4. Tratamento de Múltiplas Opções separadas por barra (Ex: "6/12/13/18")
+    # 5. Tratamento para sequências numéricas por barra (Ex: "6/12/13/18")
     barras_matches = re.findall(r'\b(\d{1,2}(?:\/\d{1,2})+)\b', texto_original)
     for grupo in barras_matches:
         numeros = grupo.split('/')
@@ -129,7 +138,7 @@ def extrair_omes_da_linha(row):
             if n.isdigit() and 1 <= int(n) <= 30:
                 omes_encontradas.add(f"{int(n)}º BPM")
 
-    # 5. Tratamento de Companhias Isoladas na coluna CIA (Ex: "1 CPM", "1ª CIA")
+    # 6. Companhias isoladas caso não tenha achado BPM/CIPM (Ex: "1 CPM")
     if not omes_encontradas:
         cpm_matches = re.findall(r'(\d+)\s*[º°ª]?\s*(?:CPM|CIA)', texto_original)
         for num in cpm_matches:
@@ -220,7 +229,7 @@ if arquivos_zip:
                 
                 df_aba.to_excel(writer, index=False, sheet_name=nome_aba)
         
-        st.success("Sucesso! Extração ajustada. Policiais com BPM, barras de opções e companhias foram distribuídos corretamente.")
+        st.success("Sucesso! Reconhecimento corrigido para BPMs com ou sem espaço (ex: 3º BPM, 10ºBPM, 12º BPM).")
         
         st.download_button(
             label="📥 Baixar Planilha Consolidada Corrigida",
