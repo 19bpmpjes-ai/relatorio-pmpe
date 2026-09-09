@@ -32,58 +32,50 @@ def padronizar_e_organizar_colunas(df):
         c_limpo = re.sub(r'[^A-Z0-9]', '', c_upper) # Remove pontos, hífens, espaços
         
         # Coluna 2: Graduação
-        if any(k in c_limpo for k in ["GRAD", "POSTO", "PATENTE", "POSTOGRAD"]):
+        if any(k in c_limpo for k in ["GRAD", "POSTO", "PATENTE", "POSTOGRAD"]) and "GRADUAÇÃO" not in novas_colunas.values():
             novas_colunas[col] = "GRADUAÇÃO"
         # Coluna 3: Matrícula
-        elif any(k in c_limpo for k in ["MATR", "MATI", "MAT", "MATRICULA", "MATRIC"]):
+        elif any(k in c_limpo for k in ["MATR", "MATI", "MAT", "MATRICULA", "MATRIC"]) and "MATRÍCULA" not in novas_colunas.values():
             novas_colunas[col] = "MATRÍCULA"
         # Coluna 4: Nome
-        elif "NOME" in c_limpo or "NOM" in c_limpo or "POLICIAL" in c_limpo:
+        elif ("NOME" in c_limpo or "NOM" in c_limpo or "POLICIAL" in c_limpo) and "NOME COMPLETO" not in novas_colunas.values():
             novas_colunas[col] = "NOME COMPLETO"
         # Coluna 5: Telefone
-        elif any(k in c_limpo for k in ["TEL", "FONE", "CEL", "CELULAR", "CONTATO", "TELEF"]):
+        elif any(k in c_limpo for k in ["TEL", "FONE", "CEL", "CELULAR", "CONTATO", "TELEF"]) and "TELEFONE" not in novas_colunas.values():
             novas_colunas[col] = "TELEFONE"
         # Coluna 6: Motorista / Função
-        elif any(k in c_limpo for k in ["MOT", "MOTORISTA", "FUNCAO", "FUNCA", "MODALID", "CARGO", "CNH"]):
+        elif any(k in c_limpo for k in ["MOT", "MOTORISTA", "FUNCAO", "FUNCA", "MODALID", "CARGO", "CNH"]) and "MOTORISTA / FUNÇÃO" not in novas_colunas.values():
             novas_colunas[col] = "MOTORISTA / FUNÇÃO"
         # Coluna 7: Quant. Cotas
-        elif any(k in c_limpo for k in ["COTA", "COTAS", "QUANT", "QTSERVI", "QTSERV", "QTD", "SOLICITADA"]):
+        elif any(k in c_limpo for k in ["COTA", "COTAS", "QUANT", "QTSERVI", "QTSERV", "QTD", "SOLICITADA"]) and "QUANT. COTAS" not in novas_colunas.values():
             novas_colunas[col] = "QUANT. COTAS"
         # Coluna 8: Disponibilidade / Turno
-        elif any(k in c_limpo for k in ["DISP", "TURNO", "DIAS", "HORA", "HORARIO", "DISPONIBILIDADE"]):
+        elif any(k in c_limpo for k in ["DISP", "TURNO", "DIAS", "HORA", "HORARIO", "DISPONIBILIDADE"]) and "DISPONIBILIDADE / TURNO" not in novas_colunas.values():
             novas_colunas[col] = "DISPONIBILIDADE / TURNO"
-        # Coluna 9: OME / Opções
-        elif any(k in c_limpo for k in ["OPC", "OME", "DESTINO", "UNIDADE", "LOTACAO", "PREENCHER", "BATALHAO"]):
+        # Coluna 9: OME / Opções (Primeira ocorrência principal)
+        elif any(k in c_limpo for k in ["OPC", "OME", "DESTINO", "UNIDADE", "LOTACAO", "PREENCHER", "BATALHAO"]) and "OME / OPÇÕES" not in novas_colunas.values():
             novas_colunas[col] = "OME / OPÇÕES"
             
     df = df.rename(columns=novas_colunas)
-    
-    # Consolida colunas repetidas após a renomeação
-    cols_unicas = {}
-    for col_name in df.columns:
-        if col_name not in cols_unicas:
-            sub_df = df.loc[:, df.columns == col_name]
-            if sub_df.shape[1] > 1:
-                cols_unicas[col_name] = sub_df.bfill(axis=1).iloc[:, 0]
-            else:
-                cols_unicas[col_name] = sub_df.iloc[:, 0]
-                
-    return pd.DataFrame(cols_unicas)
+    return df
 
-def extrair_omes(texto_ome):
+def extrair_omes_da_linha(row, colunas_ignoradas_busca):
     """
-    Analisa a célula de OME/OPÇÕES para extrair apenas unidades e batalhões válidos.
+    Analisa a linha inteira (ignorando nome, matrícula, tel e arquivo de origem)
+    para garantir que nenhuma OME perdida em colunas extras seja esquecida.
     """
-    if pd.isna(texto_ome):
-        return ["SEM OME"]
-        
-    texto_original = str(texto_ome).upper().strip()
+    texto_linha = []
+    for col, val in row.items():
+        if col not in colunas_ignoradas_busca and pd.notna(val):
+            texto_linha.append(str(val).upper())
+            
+    texto_original = " ".join(texto_linha).strip()
     if not texto_original or texto_original in ["NAN", "NONE"]:
         return ["SEM OME"]
 
     omes_encontradas = set()
 
-    # Mapeamento abrangente de OMEs e palavras-chave
+    # Mapeamento abrangente de OMEs e unidades
     if any(k in texto_original for k in ["TJPE", "TJ-PE", "JOANA BEZERRA", "TRIBUNAL DE JUSTIÇA", "TRIBUNAL DE JUSTICA"]):
         omes_encontradas.add("TJPE")
     if "TRIBUNAL DE CONTAS" in texto_original or "TCE" in texto_original:
@@ -113,12 +105,12 @@ def extrair_omes(texto_ome):
     if "BPTUR" in texto_original or "TURÍSTICO" in texto_original or "TURISTICO" in texto_original:
         omes_encontradas.add("BPTur")
 
-    # Identificação por Regex de Batalhões e Companhias
+    # Batalhões e Unidades por Padrão numérico (Ex: 3º BPM, 12º BPM, 10º BPM, 1 CPM, etc.)
     biesp_matches = re.findall(r'(\d+)\s*º?\s*BIESP', texto_original)
     for num in biesp_matches:
         omes_encontradas.add(f"{num}º BIEsp")
 
-    cipm_matches = re.findall(r'(\d+)\s*ª?\s*CIPM', texto_original)
+    cipm_matches = re.findall(r'(\d+)\s*[ªº]?\s*CIPM', texto_original)
     for num in cipm_matches:
         omes_encontradas.add(f"{num}ª CIPM")
 
@@ -126,18 +118,24 @@ def extrair_omes(texto_ome):
     for num in bpm_matches:
         omes_encontradas.add(f"{num}º BPM")
 
-    # Caso informe apenas o número da unidade (ex: 1º, 5º, 19º)
-    num_matches = re.findall(r'\b(\d{1,2})\s*º?\s*(BPM)?\b', texto_original)
-    for num, bpm in num_matches:
-        if num and 1 <= int(num) <= 29 and not omes_encontradas:
-            omes_encontradas.add(f"{num}º BPM")
+    # Companhias isoladas (ex: 1 CPM)
+    cpm_matches = re.findall(r'(\d+)\s*[ªº]?\s*CPM', texto_original)
+    for num in cpm_matches:
+        omes_encontradas.add(f"{num}ª CPM")
+
+    # Números isolados nas colunas de OME (Ex: 1º, 3º, 12º)
+    if not omes_encontradas:
+        num_matches = re.findall(r'\b(\d{1,2})\s*º?\s*(BPM)?\b', texto_original)
+        for num, bpm in num_matches:
+            if num and 1 <= int(num) <= 29:
+                omes_encontradas.add(f"{num}º BPM")
 
     return list(omes_encontradas) if omes_encontradas else ["SEM OME"]
 
 if arquivos_zip:
     tabelas_encontradas = []
     
-    with st.spinner("Unificando colunas e separando por OME/Batalhão..."):
+    with st.spinner("Unificando colunas e reclassificando policiais por OME..."):
         for arquivo_zip in arquivos_zip:
             with zipfile.ZipFile(arquivo_zip, 'r') as z:
                 for nome_arquivo in z.namelist():
@@ -195,19 +193,16 @@ if arquivos_zip:
         
         df_final = df_final[colunas_existentes + outras_colunas]
 
+        # Ignora campos que contenham informações pessoais na busca por OME para evitar falso positivo
+        colunas_ignoradas = ["ARQUIVO ORIGEM", "GRADUAÇÃO", "MATRÍCULA", "NOME COMPLETO", "TELEFONE"]
+
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             
             mecanismo_abas = {}
             
-            # Seleciona todas as colunas que podem conter informações de OME/Opções
-            cols_ome_busca = [c for c in df_final.columns if "OME" in c or "OPC" in c or "UNIDADE" in c or "DESTINO" in c]
-            
             for idx, row in df_final.iterrows():
-                # Concatena o texto presente nas colunas referentes a OME
-                texto_linha_opcoes = " ".join([str(row[c]) for c in cols_ome_busca if pd.notna(row[c])])
-                
-                lista_omes = extrair_omes(texto_linha_opcoes)
+                lista_omes = extrair_omes_da_linha(row, colunas_ignoradas)
                 
                 for ome in lista_omes:
                     chave_ome = str(ome).strip().upper()
@@ -223,12 +218,12 @@ if arquivos_zip:
                 
                 df_aba.to_excel(writer, index=False, sheet_name=nome_aba)
         
-        st.success("Sucesso! Nome 'DASDH - PATRULHA ESCOLAR' atualizado e extração das OMEs aprimorada.")
+        st.success("Sucesso! Busca expandida para todas as colunas de opções. As abas foram populadas corretamente.")
         
         st.download_button(
-            label="📥 Baixar Planilha Consolidada e Corrigida",
+            label="📥 Baixar Planilha Consolidada e Corrigida por OMEs",
             data=buffer.getvalue(),
-            file_name="Relatorio_Policiais_Por_OME_Atualizado.xlsx",
+            file_name="Relatorio_Policiais_Geral_Por_OME.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
     else:
