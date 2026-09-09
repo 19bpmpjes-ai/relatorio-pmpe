@@ -61,8 +61,8 @@ def padronizar_e_organizar_colunas(df):
 
 def extrair_omes_da_linha(row, colunas_ignoradas_busca):
     """
-    Analisa a linha priorizando Batalhões (BPM) sobre Companhias (CIA/CPM).
-    Evita que '21º BPM (3ª CIA)' vá parar na aba do '3º BPM'.
+    Extrai as OMEs da linha exigindo casamento estrito das siglas (BPM, BIESP, CIPM).
+    Ignora '3º CIA' para não jogar o policial no '3º BPM'.
     """
     texto_linha = []
     for col, val in row.items():
@@ -105,7 +105,7 @@ def extrair_omes_da_linha(row, colunas_ignoradas_busca):
     if "BPTUR" in texto_original or "TURÍSTICO" in texto_original or "TURISTICO" in texto_original:
         omes_encontradas.add("BPTur")
 
-    # 1. PRIORIDADE MÁXIMA: Identificar Batalhões (BPM) e BIESP
+    # REGRA ESTRITA: Exige explicitamente a palavra BPM ou BIESP ligada ao número
     bpm_matches = re.findall(r'(\d+)\s*º?\s*BPM', texto_original)
     for num in bpm_matches:
         omes_encontradas.add(f"{num}º BPM")
@@ -114,24 +114,15 @@ def extrair_omes_da_linha(row, colunas_ignoradas_busca):
     for num in biesp_matches:
         omes_encontradas.add(f"{num}º BIEsp")
 
-    # 2. SEGUNDA PRIORIDADE: CIPM (Companhia Independente)
     cipm_matches = re.findall(r'(\d+)\s*[ªº]?\s*CIPM', texto_original)
     for num in cipm_matches:
         omes_encontradas.add(f"{num}ª CIPM")
 
-    # 3. TERCEIRA PRIORIDADE: Companhia isolada SOMENTE se não houver BPM identificado
+    # Companhias isoladas (SOMENTE se não houver BPM identificado)
     if not omes_encontradas:
         cpm_matches = re.findall(r'(\d+)\s*[ªº]?\s*(?:CPM|CIA)', texto_original)
         for num in cpm_matches:
             omes_encontradas.add(f"{num}ª CIA")
-
-    # 4. Caso tenha apenas número solto sem sigla e nenhuma OME foi achada até agora
-    if not omes_encontradas:
-        num_flex = re.findall(r'\b(\d{1,2})\b', texto_original)
-        for num in num_flex:
-            n_int = int(num)
-            if 1 <= n_int <= 30:
-                omes_encontradas.add(f"{n_int}º BPM")
 
     return list(omes_encontradas) if omes_encontradas else ["SEM OME"]
 
@@ -220,12 +211,12 @@ if arquivos_zip:
                 
                 df_aba.to_excel(writer, index=False, sheet_name=nome_aba)
         
-        st.success("Sucesso! '21º BPM (3ª CIA)' agora vai corretamente para a aba '21º BPM'.")
+        st.success("Sucesso! Mapeamento corrigido estritamente. O '3º CIA' não vai mais para a aba do '3º BPM'.")
         
         st.download_button(
-            label="📥 Baixar Planilha Consolidada com Batalhões Corrigidos",
+            label="📥 Baixar Planilha Consolidada e Corrigida",
             data=buffer.getvalue(),
-            file_name="Relatorio_Policiais_Por_Batalhoes_Corrigido.xlsx",
+            file_name="Relatorio_Policiais_Por_OME_Corrigido.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
     else:
