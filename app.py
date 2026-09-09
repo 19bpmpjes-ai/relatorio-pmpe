@@ -52,7 +52,7 @@ def padronizar_e_organizar_colunas(df):
         # Coluna 8: Disponibilidade / Turno
         elif any(k in c_limpo for k in ["DISP", "TURNO", "DIAS", "HORA", "HORARIO", "DISPONIBILIDADE"]) and "DISPONIBILIDADE / TURNO" not in novas_colunas.values():
             novas_colunas[col] = "DISPONIBILIDADE / TURNO"
-        # Coluna 9: OME / Opções (Primeira ocorrência principal)
+        # Coluna 9: OME / Opções
         elif any(k in c_limpo for k in ["OPC", "OME", "DESTINO", "UNIDADE", "LOTACAO", "PREENCHER", "BATALHAO"]) and "OME / OPÇÕES" not in novas_colunas.values():
             novas_colunas[col] = "OME / OPÇÕES"
             
@@ -61,26 +61,14 @@ def padronizar_e_organizar_colunas(df):
 
 def extrair_omes_da_linha(row):
     """
-    Busca robusta de OMEs na linha, com suporte a siglas grudadas (ex: 10ºBPM)
-    e prioridade total para a coluna OME / OPÇÕES.
+    Varre os valores reais da linha inteira independentemente do nome da coluna.
+    Garante a captura de BPM, CIPM, BIESP e Especializadas.
     """
-    texto_linha = []
+    # Une todos os textos da linha convertidos para maiúsculo
+    valores_linha = [str(val).upper().strip() for val in row.values if pd.notna(val)]
+    texto_original = " ".join(valores_linha)
     
-    # Prioridade para a coluna 'OME / OPÇÕES' se ela existir
-    if "OME / OPÇÕES" in row and pd.notna(row["OME / OPÇÕES"]):
-        val_ome = str(row["OME / OPÇÕES"]).strip().upper()
-        if val_ome and val_ome not in ["NAN", "NONE", "****"]:
-            texto_linha.append(val_ome)
-
-    # Coleta demais colunas (exceto dados pessoais)
-    for col, val in row.items():
-        if col not in ["ARQUIVO ORIGEM", "GRADUAÇÃO", "MATRÍCULA", "NOME COMPLETO", "TELEFONE", "OME / OPÇÕES"] and pd.notna(val):
-            val_str = str(val).strip().upper()
-            if val_str and val_str not in ["NAN", "NONE", "****"]:
-                texto_linha.append(val_str)
-            
-    texto_original = " ".join(texto_linha).strip()
-    if not texto_original:
+    if not texto_original or set(valores_linha).issubset({"NAN", "NONE", "****", "***"}):
         return ["SEM OME"]
 
     omes_encontradas = set()
@@ -115,32 +103,34 @@ def extrair_omes_da_linha(row):
     if "BPTUR" in texto_original or "TURÍSTICO" in texto_original or "TURISTICO" in texto_original:
         omes_encontradas.add("BPTur")
 
-    # 2. Busca por BPM (Aceita: 3º BPM, 3ºBPM, 3 BPM, 3BPM)
-    bpm_matches = re.findall(r'(\d+)\s*[º°ª]?\s*BPM', texto_original)
+    # 2. Busca ultra-flexível por Batalhões (Ex: 3º BPM, 3ºBPM, 3 BPM, 12º BPM, 10º BPM)
+    # Pega qualquer número seguido de BPM (mesmo que haja simbolos variados de ordinal entre eles)
+    bpm_matches = re.findall(r'(\d+)\s*[^A-Z0-9]?\s*BPM', texto_original)
     for num in bpm_matches:
         omes_encontradas.add(f"{num}º BPM")
 
-    # 3. Busca por BIESP (Aceita: 1º BIESP, 1ºBIESP)
-    biesp_matches = re.findall(r'(\d+)\s*[º°ª]?\s*BIESP', texto_original)
+    # 3. Busca por BIESP (Ex: 1º BIESP)
+    biesp_matches = re.findall(r'(\d+)\s*[^A-Z0-9]?\s*BIESP', texto_original)
     for num in biesp_matches:
         omes_encontradas.add(f"{num}º BIEsp")
 
-    # 4. Busca por CIPM (Aceita: 10ª CIPM, 10ªCIPM)
-    cipm_matches = re.findall(r'(\d+)\s*[º°ª]?\s*CIPM', texto_original)
+    # 4. Busca por CIPM (Ex: 10ª CIPM)
+    cipm_matches = re.findall(r'(\d+)\s*[^A-Z0-9]?\s*CIPM', texto_original)
     for num in cipm_matches:
         omes_encontradas.add(f"{num}ª CIPM")
 
-    # 5. Tratamento para sequências numéricas por barra (Ex: "6/12/13/18")
-    barras_matches = re.findall(r'\b(\d{1,2}(?:\/\d{1,2})+)\b', texto_original)
-    for grupo in barras_matches:
-        numeros = grupo.split('/')
-        for n in numeros:
-            if n.isdigit() and 1 <= int(n) <= 30:
-                omes_encontradas.add(f"{int(n)}º BPM")
-
-    # 6. Companhias isoladas caso não tenha achado BPM/CIPM (Ex: "1 CPM")
+    # 5. Múltiplas opções por barra caso não tenha achado com a sigla BPM (Ex: "6/12/13/18")
     if not omes_encontradas:
-        cpm_matches = re.findall(r'(\d+)\s*[º°ª]?\s*(?:CPM|CIA)', texto_original)
+        barras_matches = re.findall(r'\b(\d{1,2}(?:\/\d{1,2})+)\b', texto_original)
+        for grupo in barras_matches:
+            numeros = grupo.split('/')
+            for n in numeros:
+                if n.isdigit() and 1 <= int(n) <= 30:
+                    omes_encontradas.add(f"{int(n)}º BPM")
+
+    # 6. Companhias e CPMs isoladas (Ex: "1 CPM")
+    if not omes_encontradas:
+        cpm_matches = re.findall(r'(\d+)\s*[^A-Z0-9]?\s*(?:CPM|CIA)', texto_original)
         for num in cpm_matches:
             omes_encontradas.add(f"{num}ª CPM")
 
@@ -213,6 +203,12 @@ if arquivos_zip:
             mecanismo_abas = {}
             
             for idx, row in df_final.iterrows():
+                # Ignora linhas de cabeçalho repetidas
+                grad_val = str(row.get("GRADUAÇÃO", "")).upper()
+                nome_val = str(row.get("NOME COMPLETO", "")).upper()
+                if "GRAD" in grad_val or "NOME" in nome_val or grad_val == "***":
+                    continue
+
                 lista_omes = extrair_omes_da_linha(row)
                 
                 for ome in lista_omes:
@@ -229,7 +225,7 @@ if arquivos_zip:
                 
                 df_aba.to_excel(writer, index=False, sheet_name=nome_aba)
         
-        st.success("Sucesso! Reconhecimento corrigido para BPMs com ou sem espaço (ex: 3º BPM, 10ºBPM, 12º BPM).")
+        st.success("Sucesso! Leitura corrigida. Todos os Batalhões (3º BPM, 10º BPM, 12º BPM) foram redirecionados para suas abas próprias.")
         
         st.download_button(
             label="📥 Baixar Planilha Consolidada Corrigida",
